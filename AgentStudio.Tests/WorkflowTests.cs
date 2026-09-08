@@ -305,6 +305,52 @@ public class WorkflowRunnerTests
     }
 
     [Fact]
+    public async Task JsonParseNode_extracts_value_and_writes_it_to_variable()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new VariableNode { Id = "v", Name = "apiResponse", Value = """{"user":{"name":"Anna","tags":["a","b"]}}""" });
+        graph.Nodes.Add(new JsonParseNode { Id = "j", Input = "{variables.apiResponse}", Path = "user.name", ResultVariable = "userName" });
+        graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.userName}" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "v" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "j" });
+        graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "j", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
+            output += chunk;
+
+        Assert.Equal("Anna", output);
+        Assert.Equal("Anna", conversation.Variables["userName"]);
+    }
+
+    [Fact]
+    public async Task JsonParseNode_missing_path_fails_clearly_instead_of_hanging()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new VariableNode { Id = "v", Name = "apiResponse", Value = """{"user":{"name":"Anna"}}""" });
+        graph.Nodes.Add(new JsonParseNode { Id = "j", Input = "{variables.apiResponse}", Path = "user.email", ResultVariable = "r" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "v" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "j" });
+        graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "j", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
+            output += chunk;
+
+        Assert.Contains("[error]", output);
+        Assert.Contains("'email'", output);
+    }
+
+    [Fact]
     public async Task FormValues_are_merged_into_variables_before_run()
     {
         var graph = new WorkflowGraph();

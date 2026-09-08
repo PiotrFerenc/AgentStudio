@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 142 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 158 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -88,7 +88,7 @@ edycji bezpośrednio w bazie lub podniesienia domyślnej wartości w kodzie.
 
 ## Workflow
 
-Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `integrator`, `parallel`, `join`, `end`.
+Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `integrator`, `parallel`, `join`, `end`.
 
 - Graf wykonuje się sekwencyjnie od Start, z wyjątkiem regionów `parallel`/`join` (fazy 2):
   ≥2 gałęzie z jednego `ParallelNode` biegną współbieżnie, każda z własną kopią zmiennych,
@@ -157,6 +157,18 @@ Aby dopuścić hosty wewnętrzne:
 "HttpTool": { "AllowedHosts": ["intranet.firma.local"] }
 ```
 
+## Wyciąganie wartości z JSON
+
+Węzeł `jsonParse` wyciąga jedną wartość z bloku JSON (np. odpowiedzi `http`/`databaseQuery`/
+`integrator`) po ścieżce zapisanej kropkami i indeksami w nawiasach, np. `data.items[0].name`.
+`Input` wspiera `{input}`/`{variables.x}` (to co ma sparsować), `Path` to stała ścieżka — nie
+template'owana, bo to ustalona struktura odpowiedzi, nie coś sterowane przez runtime. Wynik:
+string/liczba/bool/null zamieniane na tekst (`null` → pusty string), obiekt/tablica jako
+zagnieżdżony JSON (dla kolejnego `jsonParse` po nim). Niepoprawny JSON albo nieistniejąca
+ścieżka rzuca czytelny błąd — węzeł nie zwraca cicho pustej wartości. Nie pełny JSONPath
+(bez wildcardów/filtrów/slice'ów) — jedna wartość z ustalonego kształtu to cały use case, więc
+ręcznie pisany `JsonPathExtractor` nad `System.Text.Json` wystarcza, bez nowej zależności NuGet.
+
 ## Logi wykonania
 
 Każde wywołanie zapisuje `ExecutionLog` z listą kroków (węzeł, typ, status, czas, błąd).
@@ -166,7 +178,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 142 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 158 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -187,7 +199,9 @@ dotnet test
 # pole ukryte przez VisibleWhenField nigdy nie jest walidowane nawet gdy required, wymagany
 # checkbox odznaczony jawnie na "false" faktycznie odrzucany — nie tylko pusta wartość),
 # analityka zgłoszeń formularzy (prefiks "form-" w ConversationId, oddzielenie od zwykłych
-# wykonań czatu)
+# wykonań czatu), jsonParse (zagnieżdżone property/index, liczby/bool/null jako tekst,
+# obiekt/tablica jako surowy JSON, niepoprawny JSON i nieistniejąca ścieżka → czytelny błąd
+# zamiast zawieszenia — regresja na deadlock z fazy 2 etap 4)
 ```
 
 ## Wdrożenie (Windows/IIS)

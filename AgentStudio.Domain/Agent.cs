@@ -284,6 +284,19 @@ public sealed class DatabaseQueryNode : WorkflowNode
     public string ResultVariable { get; set; } = "dbResult";
 }
 
+/// <summary>Extracts a single value out of a JSON blob (e.g. an HttpNode's response) by a small
+/// dot/bracket path — "data.items[0].name". See JsonPathExtractor for the path syntax and
+/// exact error behavior. Input is template-expanded (e.g. "{variables.httpResult}"); Path is
+/// not — it's a fixed path into a known response shape, not something a caller should be able
+/// to redirect at runtime.</summary>
+public sealed class JsonParseNode : WorkflowNode
+{
+    public override string Type => "jsonParse";
+    public string Input { get; set; } = "{input}";
+    public string Path { get; set; } = "";
+    public string ResultVariable { get; set; } = "jsonResult";
+}
+
 /// <summary>Calls a registered IIntegrator by name (phase 4) — the extension point for custom
 /// integrations (GitLab, Jira, ...). Config values support {variables.x}/{input} placeholders,
 /// expanded before being handed to the integrator — same rigor as DatabaseQueryNode.Parameters.

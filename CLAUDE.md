@@ -132,7 +132,9 @@ The studio UI and `/api/...` require a logged-in session. The runtime agent endp
 
 ### Workflow node types
 
-`start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `parallel`, `join`, `end`. Placeholders in templates: `{input}`, `{variables.name}`. Condition operators: `Equals`, `NotEquals`, `Contains`, `StartsWith`, `EndsWith`, `>`, `<`, `>=`, `<=`.
+`start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `integrator`, `parallel`, `join`, `end`. Placeholders in templates: `{input}`, `{variables.name}`. Condition operators: `Equals`, `NotEquals`, `Contains`, `StartsWith`, `EndsWith`, `>`, `<`, `>=`, `<=`.
+
+`jsonParse` extracts one value from a JSON blob by a small dot/bracket path (`data.items[0].name`) — `AgentStudio.Domain/JsonPathExtractor.cs`, a hand-rolled walker over `System.Text.Json` (not a full JSONPath implementation — one value out of a known shape is the whole use case). `Input` is template-expanded, `Path` is not (it's a fixed path into a known response shape, not runtime-controlled). Throws a clear `InvalidOperationException` naming the bad property/index/JSON rather than returning silently empty — same fail-clearly contract as `DatabaseQueryNode`/`HttpNode`.
 
 ### HTTP tool (SSRF guard)
 

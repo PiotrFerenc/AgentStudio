@@ -275,6 +275,24 @@ public sealed class WorkflowRunner
                     current = NextByEdge(graph, query.Id, branch: null);
                     break;
                 }
+                case JsonParseNode jsonParse:
+                {
+                    var step = _logWriter.StartStep(log, jsonParse.Id, jsonParse.Type);
+                    try
+                    {
+                        var inputText = ExpandTemplate(jsonParse.Input, variables);
+                        var result = JsonPathExtractor.Extract(inputText, jsonParse.Path);
+                        variables[jsonParse.ResultVariable] = result;
+                        _logWriter.CompleteStep(step, $"jsonParse {jsonParse.Path}: {result.Length} chars");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logWriter.FailStep(step, ex.Message);
+                        throw;
+                    }
+                    current = NextByEdge(graph, jsonParse.Id, branch: null);
+                    break;
+                }
                 case IntegratorNode integrator:
                 {
                     var step = _logWriter.StartStep(log, integrator.Id, integrator.Type);

@@ -1170,3 +1170,71 @@ nagłówkiem grupy i przyciskiem "Next", pole warunkowe poprawnie ukryte na star
 "Form" w studio pokazał sekcję "Advanced" i panel "Preview"; `/analytics` pokazał nowe kafelki
 "Form submissions"/"Form success rate"; widget `agentstudio-form.js` serwowany poprawnie
 (200).
+
+# Plan dla AgentStudio — faza 6
+
+## 1. Cel fazy 6
+
+Na prośbę użytkownika: krok w grafie do wyciągania jednej wartości z JSON — typowy scenariusz
+"strzała do API i potrzebna mi tylko jedna wartość z całego JSON" (odpowiedź `http`, ale też
+`databaseQuery`/`integrator` — wszystkie zwracają JSON jako tekst do zmiennej).
+
+## 2. Zasady projektowe (ladder)
+
+- **Nowy węzeł `jsonParse`, jedna klasa, żadnej biblioteki JSONPath.** `JsonParseNode {
+  Input, Path, ResultVariable }` — ten sam kształt co inne "nazwana operacja + wynik do
+  zmiennej" węzły (`databaseQuery`, `integrator`). Ścieżka: kropki + indeksy w nawiasach
+  (`data.items[0].name`), nie pełny JSONPath (bez wildcardów/filtrów/slice'ów) — jedna wartość
+  z ustalonego kształtu odpowiedzi to cały use case. Logika w
+  `AgentStudio.Domain/JsonPathExtractor.cs`, ręcznie pisany walker nad `System.Text.Json`
+  (już używany wszędzie w projekcie) — żadna nowa zależność NuGet, ten sam wybór co przy
+  minimalnym Markdownie w fazie 5.
+- **`Input` template'owany, `Path` nie.** `Input` to zwykle `{variables.httpResult}` —
+  dynamiczna zawartość do sparsowania. `Path` to stała struktura znanej odpowiedzi API,
+  ustalana przez autora grafu — template'owanie ścieżki nie miałoby sensownego przypadku
+  użycia i tylko rozmyłoby błędy (literówka w ścieżce powinna być błędem konfiguracji, nie
+  czymś, co może się zmienić w runtime).
+- **Fail-clearly, nie cichy null.** Niepoprawny JSON, brakująca własność, indeks poza
+  zakresem — wszystko rzuca `InvalidOperationException` z treścią wskazującą dokładnie co
+  (nazwa własności/indeks), ten sam kontrakt co `DatabaseQueryNode`/`HttpNode`. Cichy pusty
+  string przy błędzie ukrywałby literówki w ścieżce zamiast je ujawniać przy pierwszym
+  uruchomieniu.
+- **Case w `WorkflowNodeConverter` dopisany jako pierwszy krok, przed czymkolwiek innym** —
+  nauka z fazy 2 etap 4, tym razem (jak w fazie 4) zastosowana od razu, nie jako poprawka
+  post-factum.
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Agent.cs`: `JsonParseNode : WorkflowNode { Input, Path, ResultVariable }`.
+- `AgentStudio.Domain/AgentStudioJson.cs`: case `"jsonParse"` w `WorkflowNodeConverter.Read`.
+- `AgentStudio.Domain/JsonPathExtractor.cs` (nowy plik): `Extract(string json, string path)`,
+  statyczna, testowalna bez DI.
+- `AgentStudio.Contracts/Dtos.cs` (`GraphMapper`): case `"jsonParse"` w `ToDomain`/`ToDto`.
+- `AgentStudio.Application/WorkflowRunner.cs`: case `JsonParseNode` — expand `Input` przez
+  `ExpandTemplate`, `JsonPathExtractor.Extract`, wynik do `ResultVariable`, standardowy
+  try/catch/`FailStep`/rethrow. Zero nowych zależności konstruktora (czysta funkcja, bez I/O).
+- Studio UI: `jsonParse` w palecie `GraphEditor`, edytor w `NodePropertiesEditor` (Input, Path,
+  Result variable).
+
+## 4. Testy ✅
+
+- `JsonPathExtractorTests.cs` (nowy plik, 13 testów): własność top-level i zagnieżdżona,
+  indeks tablicy + własność po nim, indeks na korzeniu-tablicy, liczba/bool/null jako tekst,
+  obiekt/tablica jako surowy JSON (pod kolejny `jsonParse`), pusta ścieżka = cały dokument,
+  niepoprawny JSON / brakująca własność / indeks poza zakresem / indeksowanie nie-tablicy /
+  własność na nie-obiekcie — wszystkie rzucają z czytelnym komunikatem.
+- `WorkflowTests.cs`: `JsonParseNode_extracts_value_and_writes_it_to_variable` (przez pełny
+  `WorkflowRunner`, `VariableNode` → `JsonParseNode` → `EndNode`),
+  `JsonParseNode_missing_path_fails_clearly_instead_of_hanging` (regresja na deadlock —
+  potwierdza, że brakujący case nie zawiesza `dotnet test`, uruchamiane pod `timeout`).
+- 158/158 testów zielonych.
+- Zweryfikowane end-to-end na żywym serwerze, **z prawdziwym zewnętrznym API** (nie mockiem):
+  graf `start → http (GET https://httpbin.org/json) → jsonParse (path
+  "slideshow.slides[1].title") → end`, utworzony i opublikowany przez REST, uruchomienie
+  zwróciło `"Title: Overview"` — dokładnie zgodne z prawdziwą strukturą odpowiedzi httpbin.
+  Dokładnie ten scenariusz, o który poprosił użytkownik: strzała do API, jedna wartość z
+  całego JSON.
+
+## 5. Status
+
+✅ Zrealizowane.

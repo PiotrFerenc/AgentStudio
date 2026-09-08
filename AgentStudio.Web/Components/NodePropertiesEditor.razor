@@ -103,6 +103,15 @@ else
             <input type="text" @bind="DbResultVariable" @bind:event="oninput" @bind:after="Changed" />
             <p style="color:#868e96;font-size:.8rem">Result is a JSON array of rows, written to the variable. Read-only connections only allow a single SELECT.</p>
             break;
+        case "jsonParse":
+            <label>Input (JSON text — use {input}/{variables.x}, e.g. an earlier http/databaseQuery/integrator result)</label>
+            <input type="text" @bind="JsonParseInput" @bind:event="oninput" @bind:after="Changed" />
+            <label>Path (dot/bracket, e.g. data.items[0].name)</label>
+            <input type="text" @bind="JsonParsePath" @bind:event="oninput" @bind:after="Changed" />
+            <label>Result variable</label>
+            <input type="text" @bind="JsonParseResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Extracts one value out of a JSON blob. Fails clearly (not silently empty) if the input isn't valid JSON or the path doesn't exist.</p>
+            break;
         case "integrator":
             <label>Integrator</label>
             <select @bind="IntegratorName" @bind:after="Changed">
@@ -179,6 +188,9 @@ else
     private string DbQuery { get => Get("query"); set => Put("query", value); }
     private string DbTimeout { get => Get("timeoutSeconds", "30"); set => Put("timeoutSeconds", value); }
     private string DbResultVariable { get => Get("resultVariable", "dbResult"); set => Put("resultVariable", value); }
+    private string JsonParseInput { get => Get("input", "{input}"); set => Put("input", value); }
+    private string JsonParsePath { get => Get("path"); set => Put("path", value); }
+    private string JsonParseResultVariable { get => Get("resultVariable", "jsonResult"); set => Put("resultVariable", value); }
 
     private string DbParametersText
     {

@@ -95,6 +95,13 @@ public static class GraphMapper
                     Config = PropDict(n, "config"),
                     ResultVariable = Prop(n, "resultVariable", "integratorResult")
                 },
+                "jsonParse" => new JsonParseNode
+                {
+                    Id = n.Id,
+                    Input = Prop(n, "input", "{input}"),
+                    Path = Prop(n, "path"),
+                    ResultVariable = Prop(n, "resultVariable", "jsonResult")
+                },
                 _ => throw new InvalidOperationException($"Unknown node type: {n.Type}")
             };
             node.Label = n.Label;
@@ -138,6 +145,9 @@ public static class GraphMapper
                 case IntegratorNode i:
                     n.Props["integratorName"] = i.IntegratorName; n.Props["resultVariable"] = i.ResultVariable;
                     n.Props["config"] = i.Config;
+                    break;
+                case JsonParseNode j:
+                    n.Props["input"] = j.Input; n.Props["path"] = j.Path; n.Props["resultVariable"] = j.ResultVariable;
                     break;
             }
             dto.Nodes.Add(n);
