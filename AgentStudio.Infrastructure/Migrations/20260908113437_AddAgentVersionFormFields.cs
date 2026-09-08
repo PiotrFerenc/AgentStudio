@@ -15,7 +15,7 @@ namespace AgentStudio.Infrastructure.Migrations
                 table: "AgentVersions",
                 type: "jsonb",
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "[]");
         }
 
         /// <inheritdoc />

@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 95 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 99 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -143,7 +143,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 95 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 99 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -151,7 +151,8 @@ dotnet test
 # (depth-guard cyklu, wynik do zmiennej, błąd przy braku publikacji), konektory DB
 # (SQL injection przeciwko prawdziwemu Postgresowi, read-only guard, obcięcie wyników),
 # analityka (agregacja totals/errors/avg duration, filtr okna czasowego, wykonania w toku),
-# formularze (merge formValues do zmiennych, publish/republish kopiuje MaxSteps+FormFields)
+# formularze (merge formValues do zmiennych, publish/republish kopiuje MaxSteps+FormFields,
+# FormFields getter toleruje niepoprawny/legacy JSON zamiast rzucać)
 ```
 
 ## Wdrożenie (Windows/IIS)

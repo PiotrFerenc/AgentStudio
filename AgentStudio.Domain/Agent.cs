@@ -59,7 +59,21 @@ public sealed class AgentVersion
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public List<FormField> FormFields
     {
-        get => System.Text.Json.JsonSerializer.Deserialize<List<FormField>>(FormFieldsJson, AgentStudioJson.Options) ?? new List<FormField>();
+        get
+        {
+            if (string.IsNullOrWhiteSpace(FormFieldsJson)) return new List<FormField>();
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<List<FormField>>(FormFieldsJson, AgentStudioJson.Options) ?? new List<FormField>();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // A pre-migration/legacy row can hold something that isn't a JSON array (e.g. a
+                // Postgres jsonb column's own default coercion). Treat as "no fields" rather than
+                // crashing every page that loads this version.
+                return new List<FormField>();
+            }
+        }
         set => FormFieldsJson = System.Text.Json.JsonSerializer.Serialize(value, AgentStudioJson.Options);
     }
 

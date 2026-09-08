@@ -812,6 +812,26 @@ uruchamiania obok `/chat/{agentId}/{version}`.
   "Age") z realnych opublikowanych `FormFields`. Sam submit formularza (SignalR/Blazor Server
   circuit) nie do zweryfikowania przez curl — logika po stronie silnika (merge `formValues` do
   zmiennych, expand w End template) ma pełne pokrycie unit-testem wyżej.
+- **Drugi realny bug, złapany dopiero na żywym serwerze użytkownika (nie przez testy) po tym
+  jak powyższe zostało już opisane jako "gotowe"**: migracja `AddAgentVersionFormFields` miała
+  EF-owo wygenerowane `defaultValue: ""` dla nowej kolumny `jsonb` — dla istniejących wierszy
+  (agentów sprzed tej migracji) Npgsql/Postgres skoercował to na `{}` (pusty obiekt JSON), nie
+  `[]` (pusta tablica). `AgentVersion.FormFields` deserializował to jako `List<FormField>` i
+  rzucał `JsonException` przy KAŻDYM otwarciu strony agenta z wersją sprzed migracji —
+  `AgentDetail.razor` w ogóle nie renderował się dla żadnego istniejącego agenta (500,
+  `DeveloperExceptionPageMiddleware`). Przyczyna: getter zakładał, że `FormFieldsJson` zawsze
+  jest poprawną tablicą JSON — założenie prawdziwe dla świeżo tworzonych wersji (zawsze przez
+  setter), fałszywe dla wierszy, które istniały przed dodaniem kolumny.
+  Naprawa dwuwarstwowa: (1) getter `FormFields` teraz łapie `JsonException` i traktuje
+  cokolwiek niebędące poprawną tablicą jako pustą listę zamiast wybuchać — chroni na przyszłość
+  przed dowolnym innym nieoczekiwanym kształtem danych w tej kolumnie, nie tylko `{}`; (2)
+  poprawiony `defaultValue` w pliku migracji na `"[]"` (dla świeżych instalacji od zera); (3)
+  jednorazowy `UPDATE ... SET "FormFieldsJson" = '[]' WHERE "FormFieldsJson" = '{}'` na
+  istniejącej dev bazie (13 wierszy). Test regresyjny:
+  `FormFields_getter_tolerates_non_array_json_instead_of_throwing` (`""`, `"   "`, `"{}"`,
+  `"not json"` — wszystkie muszą zwrócić pustą listę, nie rzucić). 99/99 testów zielonych.
+  Zweryfikowane na żywo: ręcznie przywrócony `{}` na jednym wierszu dev bazy, `GET
+  /agents/{id}` zwrócił 200 (wcześniej 500), wiersz przywrócony do `[]` po teście.
 
 ### Etap 5 — analityka biznesowa ✅
 

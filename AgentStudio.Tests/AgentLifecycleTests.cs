@@ -210,4 +210,15 @@ public class AgentLifecycleTests
             Assert.Single(republished.FormFields);
         }
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("{}")] // what a jsonb column's own default coercion produced for a pre-migration row — see bug note in PLAN.md
+    [InlineData("not json")]
+    public void FormFields_getter_tolerates_non_array_json_instead_of_throwing(string legacyValue)
+    {
+        var version = new AgentVersion { FormFieldsJson = legacyValue };
+        Assert.Empty(version.FormFields);
+    }
 }
