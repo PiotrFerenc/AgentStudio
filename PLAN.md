@@ -699,6 +699,12 @@ co przy planowaniu fazy 2).
 
 ## 2. Kolejność realizacji
 
+Zrealizowane w kolejności 1 → 2 → 5 → 4 (analityka przed formularzami — formularze dopisane do
+planu mid-turn już po starcie etapu 5), nie ściśle top-to-bottom — stąd licznik testów przy
+każdym etapie niżej rośnie w kolejności wykonania, nie w kolejności czytania dokumentu (etap 4
+kończy na 95/95, etap 5 wyżej w tekście zatrzymał się na 92/92 — to nie regresja, tylko
+wcześniejszy stan).
+
 ### Etap 1 — sub-agenci ✅
 
 - `SubAgentNode { TargetAgentId, InputTemplate, ResultVariable }` — wywołuje inną
@@ -759,7 +765,7 @@ co przy planowaniu fazy 2).
   read-only connection zwrócił błąd w streamie, wiersz w bazie faktycznie przetrwał
   (potwierdzone bezpośrednim `psql` — nie tylko odczyt odpowiedzi API).
 
-### Etap 4 — formularze do projektowania i uruchamiania agentów ⬜
+### Etap 4 — formularze do projektowania i uruchamiania agentów ✅
 
 Dopisane w trakcie realizacji fazy 3 (prośba użytkownika mid-turn) — alternatywa dla czatu:
 autor projektuje w studio nazwane pola formularza, użytkownik końcowy wypełnia formularz i
@@ -767,24 +773,45 @@ uruchamia opublikowaną wersję agenta, dostając wynik. Nie zastępuje czatu �
 uruchamiania obok `/chat/{agentId}/{version}`.
 
 - `FormField { Name, Label, Type (text/number/textarea/select), Options, Required }` — lista
-  na `AgentVersion` (jak `MaxSteps`), więc jest częścią tego co się publikuje i jest
-  niezmienne po publikacji, spójnie z resztą modelu wersjonowania.
-- `WorkflowRunner.RunAsync` zyskuje opcjonalny `IReadOnlyDictionary<string,string>? formValues`
-  (domyślnie null) — merge'owany do `conversation.Variables` PRZED wykonaniem, obok istniejącego
+  na `AgentVersion` (`FormFieldsJson` jsonb, `FormFields` computed — dokładnie ten sam wzorzec
+  serialize-on-set co `GraphJson`/`Graph`), więc jest częścią tego co się publikuje i jest
+  niezmienne po publikacji, spójnie z resztą modelu wersjonowania. Migracja
+  `AddAgentVersionFormFields` zaaplikowana na dev Postgresie.
+- `WorkflowRunner.RunAsync`/`ExecuteAsync` zyskują opcjonalny `IReadOnlyDictionary<string,string>?
+  formValues` (domyślnie null) — merge'owany do `conversation.Variables` PRZED
   `variables["input"] = userMessage`. Pola formularza stają się dostępne przez
-  `{variables.nazwaPola}` w grafie, tak samo jak każda inna zmienna — żaden nowy mechanizm
-  odczytu, tylko nowe źródło zapisu. Nie łamie istniejących wywołań (opcjonalny parametr, jak
-  `callDepth` w etapie 1).
-- Studio UI: nowa zakładka "Form" na `AgentDetail.razor` (wzorzec listy jak "Documents" —
-  dodaj/usuń pole), edytowalna na draft, zapisywana przy publikacji.
-- Nowa strona runtime `/run/{agentId}/{version}` (wzorzec `PublicChat.razor` — bramka na klucz
-  API, ta sama logika `?key=`), renderuje formularz z `FormSchema` opublikowanej wersji, po
-  submit woła `WorkflowRunner.RunAsync` z `formValues` i pokazuje wynik (tekst z End node) —
-  bez czata, jednorazowy request/response, nie wieloturowy (formularz to inny model interakcji
-  niż rozmowa; jeśli ktoś potrzebuje kontynuacji, użyje `/chat`).
+  `{variables.nazwaPola}` w grafie, tak samo jak każda inna zmienna. Nie łamie istniejących
+  wywołań (trailing opcjonalny parametr, jak `callDepth` w etapie 1).
+- Studio UI: nowa sekcja "Form" na `AgentDetail.razor` (tabela wierszy pól, dodaj/usuń),
+  edytowalna na draft, zapisywana przez `SaveAsync` razem z grafem i `MaxSteps`.
+- Nowa strona runtime `/run/{agentId}/{version}` (wzorzec `PublicChat.razor` — ta sama bramka
+  na klucz API, `?key=`), renderuje formularz z `FormFields` opublikowanej wersji (text/number/
+  textarea/select, walidacja `Required` po stronie klienta przed submitem), po submit woła
+  `WorkflowRunner.RunAsync` z `formValues` na jednorazowej, nietrwałej `ConversationState`
+  (ten sam wzorzec co `SubAgentNode`'s throwaway conversation — `form-{guid}`, nigdy zapisywana
+  przez `IConversationStore`) i pokazuje wynik — bez czata, jednorazowy request/response.
+- **Złapany i naprawiony realny bug niezwiązany bezpośrednio z formularzami, ale w tej samej
+  ścieżce kodu**: `AgentService.PublishAsync` i `RepublishAsync` tworzyły nową `AgentVersion`
+  kopiując `Graph`/`GraphJson`, ale **nigdy nie kopiowały `MaxSteps`** z draftu/wersji
+  źródłowej — opublikowana wersja zawsze dostawała domyślne 100, nawet jeśli autor świadomie
+  obniżył limit (np. do 5, żeby złapać nieskończoną pętlę). Bug był niewidoczny w dotychczasowych
+  testach (nikt nie sprawdzał `MaxSteps` po publikacji) i w praktyce niegroźny tylko dopóki
+  nikt nie polegał na innej wartości niż domyślna. Naprawiono przy okazji dopisywania
+  `FormFieldsJson` do tych samych dwóch konstruktorów (ten sam brakujący-copy wzorzec —
+  naprawa jednym miejscem w każdej z dwóch metod, nie w wywołujących).
 - Testy: `RunAsync` z `formValues` poprawnie ustawia zmienne przed startem grafu (fake graf
-  odczytujący `{variables.pole}` w End template), REST/UI smoke test analogiczny do
-  wcześniejszych etapów.
+  czytający `{variables.pole}` w End template) — `WorkflowTests.FormValues_are_merged_into_variables_before_run`.
+  Dwa nowe testy regresyjne na bug wyżej: `Publish_carries_MaxSteps_and_FormFields_from_draft`,
+  `Republish_carries_MaxSteps_and_FormFields_from_source_version`. 95/95 testów zielonych.
+- Zweryfikowane end-to-end na żywym serwerze z prawdziwym Postgresem: agent utworzony i
+  opublikowany przez REST API (`POST /api/agents`, `PUT .../draft` z `formFields`, `POST
+  .../publish`), `psql` bezpośrednio potwierdził `FormFieldsJson` identyczny na wersji draft
+  (v0) i published (v1) — dowód że naprawa copy-bugu działa na żywej bazie, nie tylko w
+  testach InMemory. `/run/{agentId}/1` bez klucza poprawnie pokazał bramkę
+  ("This form requires an access key"), z `?key=` poprawnie wyrenderował oba pola ("City",
+  "Age") z realnych opublikowanych `FormFields`. Sam submit formularza (SignalR/Blazor Server
+  circuit) nie do zweryfikowania przez curl — logika po stronie silnika (merge `formValues` do
+  zmiennych, expand w End template) ma pełne pokrycie unit-testem wyżej.
 
 ### Etap 5 — analityka biznesowa ✅
 
@@ -812,8 +839,20 @@ uruchamiania obok `/chat/{agentId}/{version}`.
   `UserService` bezpośrednio na tej samej bazie (nie przez UI — `/auth/setup` już zwraca 404,
   bo administrator istnieje), usuniętego po teście.
 
-### Etap 6 — dokumentacja końcowa ⬜
+### Etap 6 — dokumentacja końcowa ✅
 
 - README/DEPLOYMENT/PLAN.md pod sub-agentów, konektory DB, formularze, analitykę.
 - Pełny przegląd spójności na końcu (nie tylko dopisywanie na bieżąco) — powtórzyć to co
   złapało realne rozjazdy w fazie 2 etap 6.
+- Znalezione i naprawione rozjazdy: licznik testów w README (88→95, w tym komentarz w bloku
+  `dotnet test`), nagłówek "Zakres fazy 3 (w toku)" → "(zrealizowany)" (wszystkie 4 podpunkty
+  są ✅, nagłówek nie nadążał), lista chronionych route'ów w sekcji "Logowanie" nie wymieniała
+  `/database-connections` ani `/analytics` (dopisane w etapie 2/5, nigdy nie trafiły do tej
+  listy), DEPLOYMENT.md nie wymieniał `/run/*` obok `/chat/*`/`/widget/*` w opisie topologii,
+  security-note i regule reverse proxy (nowy publiczny endpoint z etapu 4, ten sam poziom
+  ochrony co chat — pominięty przy pisaniu etapu 4, bo dopisywany na bieżąco, nie w ramach
+  przeglądu). Dopisana notka wyjaśniająca, czemu liczniki testów przy etapach 4/5 w tym pliku
+  nie rosną monotonicznie top-to-bottom (kolejność w dokumencie ≠ kolejność wykonania).
+  Sprawdzone i bez rozjazdów: numery portów Postgresa (5433 dev, 5432 jako typowy default przy
+  Option B w DEPLOYMENT.md — to rozróżnienie jest zamierzone, nie błąd), ścieżka migracji,
+  `Documents:StoragePath` (zweryfikowane grepem względem `DocumentIndexer.cs`).

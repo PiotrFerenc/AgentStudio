@@ -65,10 +65,11 @@ public sealed class WorkflowRunner
         ConversationState conversation,
         string userMessage,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default,
-        int callDepth = 0)
+        int callDepth = 0,
+        IReadOnlyDictionary<string, string>? formValues = null)
     {
         var channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
-        var runTask = Task.Run(() => ExecuteAsync(agent, version, provider, conversation, userMessage, channel.Writer, callDepth, ct), ct);
+        var runTask = Task.Run(() => ExecuteAsync(agent, version, provider, conversation, userMessage, channel.Writer, callDepth, ct, formValues), ct);
 
         await foreach (var chunk in channel.Reader.ReadAllAsync(ct))
             yield return chunk;
@@ -84,7 +85,8 @@ public sealed class WorkflowRunner
         string userMessage,
         ChannelWriter<string> output,
         int callDepth,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyDictionary<string, string>? formValues = null)
     {
         // Everything — including graph deserialization — must run inside this try/finally.
         // output.Complete() has to fire no matter what fails, or RunAsync's `await foreach`
@@ -106,6 +108,9 @@ public sealed class WorkflowRunner
             if (callDepth == 0)
                 LastExecutionId = log.ExecutionId;
             var variables = conversation.Variables;
+            if (formValues is not null)
+                foreach (var (name, value) in formValues)
+                    variables[name] = value;
             variables["input"] = userMessage;
 
             lock (conversation)

@@ -147,4 +147,67 @@ public class AgentLifecycleTests
         var service = new AgentService(new AgentRepository(db), new ApiKeyService());
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.RepublishAsync(agentId, 0));
     }
+
+    [Fact]
+    public async Task Publish_carries_MaxSteps_and_FormFields_from_draft()
+    {
+        var options = Options("publish-carries-draft-test");
+        Guid agentId;
+        using (var db = new AgentStudioDbContext(options))
+        {
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var (agent, _) = await service.CreateAsync(new Contracts.CreateAgentRequest("a", "d", "i", "p", "m"));
+            agentId = agent.Id;
+            var dto = new Contracts.WorkflowGraphDto();
+            dto.Nodes.Add(new Contracts.WorkflowNodeDto { Id = "s", Type = "start" });
+            dto.Nodes.Add(new Contracts.WorkflowNodeDto { Id = "e", Type = "end" });
+            dto.Edges.Add(new Contracts.WorkflowEdgeDto { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
+            var fields = new List<FormField> { new() { Name = "city", Label = "City", Required = true } };
+            await service.UpdateDraftAsync(agent.Id, dto, maxSteps: 7, formFields: fields);
+            await service.PublishAsync(agent.Id);
+        }
+
+        using (var db = new AgentStudioDbContext(options))
+        {
+            var agent = await new AgentRepository(db).GetAsync(agentId);
+            var published = agent!.Versions.Single(v => v.Status == AgentVersionStatus.Published);
+            Assert.Equal(7, published.MaxSteps);
+            Assert.Single(published.FormFields);
+            Assert.Equal("city", published.FormFields[0].Name);
+        }
+    }
+
+    [Fact]
+    public async Task Republish_carries_MaxSteps_and_FormFields_from_source_version()
+    {
+        var options = Options("republish-carries-source-test");
+        Guid agentId;
+        using (var db = new AgentStudioDbContext(options))
+        {
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var (agent, _) = await service.CreateAsync(new Contracts.CreateAgentRequest("a", "d", "i", "p", "m"));
+            agentId = agent.Id;
+            var dto = new Contracts.WorkflowGraphDto();
+            dto.Nodes.Add(new Contracts.WorkflowNodeDto { Id = "s", Type = "start" });
+            dto.Nodes.Add(new Contracts.WorkflowNodeDto { Id = "e", Type = "end" });
+            dto.Edges.Add(new Contracts.WorkflowEdgeDto { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
+            var fields = new List<FormField> { new() { Name = "city", Label = "City" } };
+            await service.UpdateDraftAsync(agent.Id, dto, maxSteps: 9, formFields: fields);
+            await service.PublishAsync(agent.Id);
+        }
+
+        using (var db = new AgentStudioDbContext(options))
+        {
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            await service.RepublishAsync(agentId, 1);
+        }
+
+        using (var db = new AgentStudioDbContext(options))
+        {
+            var agent = await new AgentRepository(db).GetAsync(agentId);
+            var republished = agent!.Versions.Single(v => v.Version == 2);
+            Assert.Equal(9, republished.MaxSteps);
+            Assert.Single(republished.FormFields);
+        }
+    }
 }

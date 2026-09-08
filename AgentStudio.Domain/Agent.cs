@@ -51,8 +51,36 @@ public sealed class AgentVersion
         set => GraphJson = System.Text.Json.JsonSerializer.Serialize(value, AgentStudioJson.Options);
     }
 
+    /// <summary>Serialized <see cref="FormField"/> list JSON (phase 3, forms) — same
+    /// serialize-on-set pattern as <see cref="GraphJson"/>/<see cref="Graph"/>.</summary>
+    public string FormFieldsJson { get; set; } = "[]";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public List<FormField> FormFields
+    {
+        get => System.Text.Json.JsonSerializer.Deserialize<List<FormField>>(FormFieldsJson, AgentStudioJson.Options) ?? new List<FormField>();
+        set => FormFieldsJson = System.Text.Json.JsonSerializer.Serialize(value, AgentStudioJson.Options);
+    }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? PublishedAt { get; set; }
+}
+
+/// <summary>A single input field of an agent's published form (phase 3) — an alternative,
+/// one-shot way to run an agent besides chat. Values become <c>{variables.Name}</c> in the
+/// graph, just like any other conversation variable.</summary>
+public sealed class FormField
+{
+    public string Name { get; set; } = "";
+    public string Label { get; set; } = "";
+
+    /// <summary>text | number | textarea | select.</summary>
+    public string Type { get; set; } = "text";
+
+    /// <summary>Choices for Type == "select".</summary>
+    public List<string> Options { get; set; } = new();
+    public bool Required { get; set; }
 }
 
 public sealed class WorkflowGraph

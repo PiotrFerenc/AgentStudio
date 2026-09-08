@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 92 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 95 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -143,14 +143,15 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 92 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 95 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
 # flush order), RAG (chunking, cosine ranking, indexer, search service), sub-agenci
 # (depth-guard cyklu, wynik do zmiennej, błąd przy braku publikacji), konektory DB
 # (SQL injection przeciwko prawdziwemu Postgresowi, read-only guard, obcięcie wyników),
-# analityka (agregacja totals/errors/avg duration, filtr okna czasowego, wykonania w toku)
+# analityka (agregacja totals/errors/avg duration, filtr okna czasowego, wykonania w toku),
+# formularze (merge formValues do zmiennych, publish/republish kopiuje MaxSteps+FormFields)
 ```
 
 ## Wdrożenie (Windows/IIS)
@@ -161,7 +162,7 @@ backup, smoke test po wdrożeniu).
 
 ## Logowanie (faza 2)
 
-Panel studio (`/`, `/agents/*`, `/providers`, `/users`) i zarządcze `/api/...` wymagają
+Panel studio (`/`, `/agents/*`, `/providers`, `/users`, `/database-connections`, `/analytics`) i zarządcze `/api/...` wymagają
 zalogowania — konta z rolami Admin/Editor, cookie auth. Pierwsza wizyta na świeżej instalacji
 przekierowuje `/` → `/login` → `/setup`, gdzie zakłada się pierwsze konto Admin. Kolejne konta
 zarządzane są na `/users` (tylko Admin). Runtime endpointy agentów
@@ -221,6 +222,14 @@ przynajmniej jedną opublikowaną wersję.
    gwarancja — realna ochrona to uprawnienia użytkownika bazy). Limit 100 wierszy, powyżej —
    obcięcie z `truncated:true`, nie błąd.
 
+## Formularze (faza 3)
+
+Alternatywa dla czatu: zaprojektuj w zakładce "Form" na stronie agenta nazwane pola
+(text/number/textarea/select, opcjonalnie wymagane), publikuj razem z grafem. Użytkownik
+końcowy wypełnia formularz pod `/run/{agentId}/{version}?key=...` (ta sama bramka na klucz co
+`/chat`) i dostaje jednorazowy wynik — bez wieloturowej rozmowy. Wartości pól stają się
+`{variables.nazwaPola}` w grafie, tak samo jak każda inna zmienna.
+
 ## Analityka (faza 3)
 
 `/analytics` (widoczna dla każdego zalogowanego) — stat tiles (liczba wykonań, error rate,
@@ -228,11 +237,11 @@ aktywni agenci, średni czas trwania) za ostatnie 30 dni, wykres słupkowy wykon
 tabela z rankingiem agentów wg liczby wykonań. Agregacje LINQ nad istniejącym `ExecutionLog`
 — żadnej nowej tabeli śledzącej, żadnej biblioteki wykresów (SVG ręcznie, jak `GraphEditor`).
 
-## Zakres fazy 3 (w toku)
+## Zakres fazy 3 (zrealizowany)
 
 - ✅ Sub-agenci (`subAgent`, jednorazowe wywołanie, depth-guard cyklu)
 - ✅ Konektory do baz danych (`databaseQuery`, parametryzowane zapytania, read-only guard)
-- ⬜ Formularze do projektowania i uruchamiania agentów (`/run/{agentId}/{version}`, alternatywa dla czatu)
+- ✅ Formularze do projektowania i uruchamiania agentów (`/run/{agentId}/{version}`, alternatywa dla czatu)
 - ✅ Analityka biznesowa (`/analytics`, stat tiles + wykresy SVG)
 
 Pełny plan: `PLAN.md` (sekcja "Plan dla AgentStudio — faza 3").

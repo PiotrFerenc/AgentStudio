@@ -3,7 +3,7 @@ using AgentStudio.Domain;
 namespace AgentStudio.Contracts;
 
 public sealed record CreateAgentRequest(string Name, string Description, string SystemInstructions, string ModelProviderName, string ModelName);
-public sealed record UpdateDraftRequest(WorkflowGraphDto Graph, int? MaxSteps = null);
+public sealed record UpdateDraftRequest(WorkflowGraphDto Graph, int? MaxSteps = null, List<FormField>? FormFields = null);
 public sealed record AgentDto(Guid Id, string Name, string Description, string SystemInstructions, string ModelProviderName, string ModelName, DateTimeOffset CreatedAt);
 public sealed record AgentVersionDto(int Version, string Status, DateTimeOffset CreatedAt, DateTimeOffset? PublishedAt, int MaxSteps);
 public sealed record ValidationResultDto(bool IsValid, List<string> Errors);

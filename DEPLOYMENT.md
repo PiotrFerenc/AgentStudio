@@ -2,7 +2,8 @@
 
 Production topology: a single ASP.NET Core app (`AgentStudio.Web`) hosted in-process by IIS,
 backed by PostgreSQL. The studio UI, the `/api/...` REST endpoints, the public chat page
-(`/chat/{agentId}/{version}`) and the embeddable widget (`/widget/agentstudio.js`) are all
+(`/chat/{agentId}/{version}`), the public form page (`/run/{agentId}/{version}`, phase 3 —
+a one-shot alternative to chat) and the embeddable widget (`/widget/agentstudio.js`) are all
 served by this one app — there is no separate API process.
 
 > **Security note — studio auth (phase 2).** The studio UI and the management `/api/...`
@@ -10,9 +11,10 @@ served by this one app — there is no separate API process.
 > no accounts yet, `/` redirects to `/login` which redirects to `/setup` — create the first
 > Admin there. Manage further accounts at `/users` (Admin only). The runtime agent endpoints
 > (`/api/agents/{id}/versions/{v}/conversations` and `/stream`) stay anonymous, protected only
-> by the per-agent `X-Agent-Api-Key` header — those (plus `/chat/*` and `/widget/*`) are the
-> endpoints safe to expose publicly; still bind the rest to an internal interface or a reverse
-> proxy with IP restrictions, since there's no rate limiting or lockout on `/auth/login` yet.
+> by the per-agent `X-Agent-Api-Key` header — those (plus `/chat/*`, `/run/*` and `/widget/*`)
+> are the endpoints safe to expose publicly; still bind the rest to an internal interface or a
+> reverse proxy with IP restrictions, since there's no rate limiting or lockout on `/auth/login`
+> yet.
 
 ## 1. Publish the app
 
@@ -99,7 +101,7 @@ EF InMemory (dev mode — data is lost on restart).
 - Disable response buffering for `/api/agents/*/versions/*/stream` (SSE). For nginx:
   `proxy_buffering off;` and `proxy_read_timeout 300s;` on that location.
 - Restrict the studio UI (`/`, `/agents`, …) to internal IPs; expose only
-  `/api/agents/*/versions/*` and `/widget/*` and `/chat/*` publicly if embedding the widget.
+  `/api/agents/*/versions/*`, `/widget/*`, `/chat/*` and `/run/*` publicly if embedding the widget.
 
 ## 4. HTTP tool / SSRF
 

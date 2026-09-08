@@ -1,0 +1,201 @@
+@page "/run/{AgentId:guid}/{Version:int}"
+@layout AgentStudio.Web.Components.Layout.ChatLayout
+@rendermode InteractiveServer
+@inject AgentStudio.Application.IAgentRepository Agents
+@inject AgentStudio.Application.IProviderRepository Providers
+@inject AgentStudio.Application.AgentService AgentService
+@inject AgentStudio.Application.WorkflowRunner Runner
+@using AgentStudio.Domain
+
+@if (_notFound)
+{
+    <div class="chat-error">
+        <h2>Agent not available</h2>
+        <p>@_errorMessage</p>
+    </div>
+}
+else if (_needsKey)
+{
+    <div class="chat-key-gate">
+        <div class="chat-key-box">
+            <h2>@(_agent?.Name ?? "Agent")</h2>
+            <p>This form requires an access key.</p>
+            <input type="password" @bind="_keyInput" @bind:event="oninput" placeholder="Access key" @onkeydown="OnKeyDown" />
+            <button @onclick="SubmitKey">Enter</button>
+            @if (_keyError)
+            {
+                <p class="chat-key-error">Invalid key. Try again.</p>
+            }
+        </div>
+    </div>
+}
+else if (_agent is not null && _version is not null)
+{
+    <div class="chat-page">
+        <header class="chat-header">
+            <strong>@_agent.Name</strong>
+            <span class="chat-header-sub">v@Version · form · powered by AgentStudio</span>
+        </header>
+        <div class="chat-messages">
+            <div class="chat-empty" style="max-width:480px;margin:1.5rem auto">
+                @if (_version.FormFields.Count == 0)
+                {
+                    <p>This version has no form fields configured.</p>
+                }
+                else
+                {
+                    @foreach (var f in _version.FormFields)
+                    {
+                        <div style="margin-bottom:1rem;text-align:left">
+                            <label>@f.Label@(f.Required ? " *" : "")</label>
+                            @if (f.Type == "textarea")
+                            {
+                                <textarea @bind="_values[f.Name]" @bind:event="oninput"></textarea>
+                            }
+                            else if (f.Type == "select")
+                            {
+                                <select @bind="_values[f.Name]">
+                                    <option value="">-- select --</option>
+                                    @foreach (var o in f.Options)
+                                    {
+                                        <option value="@o">@o</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="@(f.Type == "number" ? "number" : "text")" @bind="_values[f.Name]" @bind:event="oninput" />
+                            }
+                        </div>
+                    }
+                    <button class="primary" @onclick="SubmitAsync" disabled="@_sending">Run</button>
+                }
+                @if (_error is not null)
+                {
+                    <p class="chat-key-error">@_error</p>
+                }
+            </div>
+            @if (_result is not null)
+            {
+                <div class="chat-bubble-row assistant">
+                    <div class="chat-bubble assistant">@_result</div>
+                </div>
+            }
+            else if (_sending)
+            {
+                <div class="chat-bubble-row assistant">
+                    <div class="chat-bubble assistant">…</div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid AgentId { get; set; }
+    [Parameter] public int Version { get; set; }
+    [SupplyParameterFromQuery(Name = "key")] public string? QueryKey { get; set; }
+
+    private Agent? _agent;
+    private AgentVersion? _version;
+    private ModelProviderConfig? _provider;
+
+    private bool _notFound;
+    private string _errorMessage = "";
+    private bool _needsKey = true;
+    private bool _keyError;
+    private string _keyInput = "";
+
+    private readonly Dictionary<string, string> _values = new();
+    private bool _sending;
+    private string? _result;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _agent = await Agents.GetAsync(AgentId);
+        if (_agent is null)
+        {
+            _notFound = true;
+            _errorMessage = "This agent does not exist.";
+            return;
+        }
+
+        _version = _agent.Versions.FirstOrDefault(v => v.Version == Version && v.Status == AgentVersionStatus.Published);
+        if (_version is null)
+        {
+            _notFound = true;
+            _errorMessage = $"Version {Version} is not published.";
+            return;
+        }
+
+        _provider = await Providers.GetByNameAsync(_agent.ModelProviderName);
+        foreach (var f in _version.FormFields)
+            _values[f.Name] = "";
+
+        if (!string.IsNullOrWhiteSpace(QueryKey))
+            await TryKeyAsync(QueryKey);
+    }
+
+    private async Task SubmitKey() => await TryKeyAsync(_keyInput);
+
+    private async Task TryKeyAsync(string? key)
+    {
+        if (_agent is not null && AgentService.VerifyApiKey(_agent, key))
+        {
+            _needsKey = false;
+            _keyError = false;
+        }
+        else
+        {
+            _keyError = true;
+        }
+        await Task.CompletedTask;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SubmitKey();
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_agent is null || _version is null || _provider is null) return;
+
+        var missing = _version.FormFields.Where(f => f.Required && string.IsNullOrWhiteSpace(_values.GetValueOrDefault(f.Name)));
+        if (missing.Any())
+        {
+            _error = $"Required: {string.Join(", ", missing.Select(f => f.Label))}";
+            return;
+        }
+
+        _sending = true;
+        _error = null;
+        _result = null;
+
+        try
+        {
+            // One-shot, not persisted — a form run isn't a multi-turn conversation.
+            var conversation = new ConversationState
+            {
+                ConversationId = $"form-{Guid.NewGuid():N}",
+                AgentId = _agent.Id,
+                AgentVersion = _version.Version
+            };
+
+            var buffer = new System.Text.StringBuilder();
+            await foreach (var chunk in Runner.RunAsync(_agent, _version, _provider, conversation, "", formValues: _values))
+                buffer.Append(chunk);
+
+            _result = buffer.ToString();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

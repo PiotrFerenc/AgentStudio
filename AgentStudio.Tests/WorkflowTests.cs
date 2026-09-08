@@ -305,6 +305,24 @@ public class WorkflowRunnerTests
     }
 
     [Fact]
+    public async Task FormValues_are_merged_into_variables_before_run()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "hello {variables.city}" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "", formValues: new Dictionary<string, string> { ["city"] = "Warsaw" }))
+            output += chunk;
+
+        Assert.Equal("hello Warsaw", output);
+    }
+
+    [Fact]
     public async Task Condition_routes_true_branch()
     {
         var graph = new WorkflowGraph();

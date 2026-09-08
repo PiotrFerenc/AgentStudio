@@ -61,8 +61,8 @@ public sealed class StudioApiClient
     public async Task<(Agent Agent, string RawKey)> CreateAgentAsync(string name, string description, string instructions, string providerName, string modelName, CancellationToken ct = default) =>
         await _agentService.CreateAsync(new CreateAgentRequest(name, description, instructions, providerName, modelName), ct);
 
-    public Task<ValidationResultDto> SaveDraftAsync(Guid agentId, WorkflowGraphDto graph, int? maxSteps = null, CancellationToken ct = default) =>
-        _agentService.UpdateDraftAsync(agentId, graph, maxSteps, ct);
+    public Task<ValidationResultDto> SaveDraftAsync(Guid agentId, WorkflowGraphDto graph, int? maxSteps = null, List<FormField>? formFields = null, CancellationToken ct = default) =>
+        _agentService.UpdateDraftAsync(agentId, graph, maxSteps, formFields, ct);
 
     public Task<AgentVersion> PublishAsync(Guid agentId, CancellationToken ct = default) =>
         _agentService.PublishAsync(agentId, ct);

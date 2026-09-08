@@ -64,6 +64,8 @@ public sealed class AgentStudioDbContext : DbContext
             e.Property(v => v.Id).ValueGeneratedOnAdd();
             e.Property(v => v.GraphJson).HasColumnType("jsonb");
             e.Ignore(v => v.Graph);
+            e.Property(v => v.FormFieldsJson).HasColumnType("jsonb");
+            e.Ignore(v => v.FormFields);
         });
 
         modelBuilder.Entity<ModelProviderConfig>(e =>

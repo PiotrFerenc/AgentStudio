@@ -53,6 +53,14 @@ else
                         <button class="secondary" style="margin:0 0 0 .5rem;padding:.15rem .6rem;font-size:.75rem"
                                 @onclick="() => RepublishAsync(v.Version)">republish</button>
                     </div>
+                    @if (v.FormFields.Count > 0)
+                    {
+                        <div style="margin:.1rem 0 .25rem">
+                            <code>/run/@Agent.Id/@v.Version?key=YOUR_API_KEY</code>
+                            <button class="secondary" style="margin:0 0 0 .5rem;padding:.15rem .6rem;font-size:.75rem"
+                                    @onclick="() => CopyFormLink(v.Version)">copy</button>
+                        </div>
+                    }
                 }
             </p>
         }
@@ -125,6 +133,42 @@ else
         {
             <p class="error-list">@_documentError</p>
         }
+    </div>
+
+    <div class="panel">
+        <h2>Form (alternative to chat)</h2>
+        <p style="color:#868e96;font-size:.85rem">Named fields become <code>{variables.name}</code> in the graph. Published together with the graph — publish a new version to expose changes at <code>/run/{agentId}/{version}</code>.</p>
+        @if (_formFields.Count == 0)
+        {
+            <p>No fields yet.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>Name</th><th>Label</th><th>Type</th><th>Options (comma-separated)</th><th>Required</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var f in _formFields)
+                    {
+                        <tr>
+                            <td><input type="text" @bind="f.Name" @bind:event="oninput" /></td>
+                            <td><input type="text" @bind="f.Label" @bind:event="oninput" /></td>
+                            <td>
+                                <select @bind="f.Type">
+                                    <option value="text">text</option>
+                                    <option value="number">number</option>
+                                    <option value="textarea">textarea</option>
+                                    <option value="select">select</option>
+                                </select>
+                            </td>
+                            <td><input type="text" value="@string.Join(",", f.Options)" @onchange="e => SetOptions(f, e)" disabled="@(f.Type != FormFieldTypeSelect)" /></td>
+                            <td><input type="checkbox" style="width:auto" @bind="f.Required" /></td>
+                            <td><button class="secondary" @onclick="() => _formFields.Remove(f)">Remove</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        <button class="secondary" @onclick="AddField">Add field</button>
     </div>
 
     <div class="panel">
@@ -206,6 +250,7 @@ else
     private GraphEditor? _editor;
     private string DraftStatus = "";
     private int _maxSteps = 100;
+    private List<FormField> _formFields = new();
     private ValidationResultDto? _validation;
     private string? _publishMessage;
 
@@ -237,6 +282,20 @@ else
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
     }
 
+    private async Task CopyFormLink(int version)
+    {
+        var url = $"{Nav.BaseUri.TrimEnd('/')}/run/{Agent!.Id}/{version}?key=YOUR_API_KEY";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+    }
+
+    private const string FormFieldTypeSelect = "select";
+
+    private void AddField() =>
+        _formFields.Add(new FormField { Name = $"field{_formFields.Count + 1}", Label = "Field" });
+
+    private static void SetOptions(FormField f, ChangeEventArgs e) =>
+        f.Options = ((string?)e.Value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
@@ -247,6 +306,7 @@ else
             _graph = GraphMapper.ToDto(Agent.Draft.Graph);
             DraftStatus = Agent.Draft.Status.ToString();
             _maxSteps = Agent.Draft.MaxSteps;
+            _formFields = Agent.Draft.FormFields;
         }
         _logs = await Api.ListLogsAsync(Id);
         _documents = await Api.ListDocumentsAsync(Id);
@@ -298,7 +358,7 @@ else
 
     private async Task SaveAsync()
     {
-        _validation = await Api.SaveDraftAsync(Id, _graph, _maxSteps);
+        _validation = await Api.SaveDraftAsync(Id, _graph, _maxSteps, _formFields);
         DraftStatus = _validation.IsValid ? "Validated" : "Draft";
     }
 

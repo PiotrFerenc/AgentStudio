@@ -38,7 +38,7 @@ public sealed class AgentService
         return (agent, rawKey);
     }
 
-    public async Task<ValidationResultDto> UpdateDraftAsync(Guid agentId, WorkflowGraphDto graphDto, int? maxSteps = null, CancellationToken ct = default)
+    public async Task<ValidationResultDto> UpdateDraftAsync(Guid agentId, WorkflowGraphDto graphDto, int? maxSteps = null, List<FormField>? formFields = null, CancellationToken ct = default)
     {
         var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
         var graph = GraphMapper.ToDomain(graphDto);
@@ -57,6 +57,8 @@ public sealed class AgentService
         }
         if (maxSteps is > 0)
             draft.MaxSteps = maxSteps.Value;
+        if (formFields is not null)
+            draft.FormFields = formFields;
         agent.UpdatedAt = DateTimeOffset.UtcNow;
         await _agents.SaveChangesAsync(ct);
         return new ValidationResultDto(errors.Count == 0, errors);
@@ -79,6 +81,8 @@ public sealed class AgentService
             Version = nextVersion,
             Status = AgentVersionStatus.Published,
             Graph = agent.Draft.Graph,
+            MaxSteps = agent.Draft.MaxSteps,
+            FormFieldsJson = agent.Draft.FormFieldsJson,
             PublishedAt = DateTimeOffset.UtcNow
         };
         agent.Versions.Add(published);
@@ -131,6 +135,8 @@ public sealed class AgentService
             Version = nextVersion,
             Status = AgentVersionStatus.Published,
             GraphJson = source.GraphJson,
+            MaxSteps = source.MaxSteps,
+            FormFieldsJson = source.FormFieldsJson,
             PublishedAt = DateTimeOffset.UtcNow
         };
         agent.Versions.Add(published);
