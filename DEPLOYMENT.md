@@ -120,7 +120,10 @@ line in `DependencyInjection.cs` — a code change + redeploy, not a runtime plu
 
 EF Core migrations run automatically at startup (`MigrateAsync`) — no manual `dotnet ef database update`
 is needed, but the DB user needs DDL rights on first start. The migration is
-`AgentStudio.Infrastructure/Migrations/*_Initial.cs` (Npgsql provider, `jsonb` columns).
+`AgentStudio.Infrastructure/Migrations/*_Initial.cs` (Npgsql provider, `jsonb` columns). The
+form-builder expansion (extended `FormField`, `AgentVersion.FormResultMode`/`FormResultTarget`/
+`FormResultMarkdown`) added `AddFormFieldExtensionsAndResultBehavior` — applies automatically
+the same way, nothing extra needed on deploy.
 
 If `ConnectionStrings:AgentStudio` is empty or the literal `"InMemory"`, the app falls back to
 EF InMemory (dev mode — data is lost on restart).

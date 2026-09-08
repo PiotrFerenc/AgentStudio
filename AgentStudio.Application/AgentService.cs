@@ -38,7 +38,15 @@ public sealed class AgentService
         return (agent, rawKey);
     }
 
-    public async Task<ValidationResultDto> UpdateDraftAsync(Guid agentId, WorkflowGraphDto graphDto, int? maxSteps = null, List<FormField>? formFields = null, CancellationToken ct = default)
+    public async Task<ValidationResultDto> UpdateDraftAsync(
+        Guid agentId,
+        WorkflowGraphDto graphDto,
+        int? maxSteps = null,
+        List<FormField>? formFields = null,
+        string? formResultMode = null,
+        string? formResultTarget = null,
+        bool? formResultMarkdown = null,
+        CancellationToken ct = default)
     {
         var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
         var graph = GraphMapper.ToDomain(graphDto);
@@ -59,6 +67,12 @@ public sealed class AgentService
             draft.MaxSteps = maxSteps.Value;
         if (formFields is not null)
             draft.FormFields = formFields;
+        if (formResultMode is not null)
+            draft.FormResultMode = formResultMode;
+        if (formResultTarget is not null)
+            draft.FormResultTarget = formResultTarget;
+        if (formResultMarkdown is not null)
+            draft.FormResultMarkdown = formResultMarkdown.Value;
         agent.UpdatedAt = DateTimeOffset.UtcNow;
         await _agents.SaveChangesAsync(ct);
         return new ValidationResultDto(errors.Count == 0, errors);
@@ -83,6 +97,9 @@ public sealed class AgentService
             Graph = agent.Draft.Graph,
             MaxSteps = agent.Draft.MaxSteps,
             FormFieldsJson = agent.Draft.FormFieldsJson,
+            FormResultMode = agent.Draft.FormResultMode,
+            FormResultTarget = agent.Draft.FormResultTarget,
+            FormResultMarkdown = agent.Draft.FormResultMarkdown,
             PublishedAt = DateTimeOffset.UtcNow
         };
         agent.Versions.Add(published);
@@ -137,6 +154,9 @@ public sealed class AgentService
             GraphJson = source.GraphJson,
             MaxSteps = source.MaxSteps,
             FormFieldsJson = source.FormFieldsJson,
+            FormResultMode = source.FormResultMode,
+            FormResultTarget = source.FormResultTarget,
+            FormResultMarkdown = source.FormResultMarkdown,
             PublishedAt = DateTimeOffset.UtcNow
         };
         agent.Versions.Add(published);

@@ -1051,3 +1051,122 @@ działa, graf deserializuje się poprawnie przez cały pipeline). Po ustawieniu
 nieosiągalny port) to samo uruchomienie zwróciło `"Connection refused (localhost:1)"` —
 dowód, że binding configu działa i integrator faktycznie próbuje prawdziwego wywołania HTTP,
 nie tylko czyta config. To najsilniejszy dostępny dowód bez prawdziwej instancji GitLaba/Jiry.
+
+# Plan dla AgentStudio — faza 5
+
+## 1. Cel fazy 5
+
+Rozszerzenie formularzy (podstawowa wersja: faza 3 etap 4) na prośbę użytkownika, mid-turn:
+bogatszy model pola (więcej typów, walidacja, grupowanie, widoczność warunkowa, kreator
+wieloetapowy), trzy tryby wyniku uruchomienia formularza, widget do osadzania na obcej stronie
+i analityka zgłoszeń formularzy. Nie zastępuje modelu z fazy 3 — rozszerza `FormField` i
+`AgentVersion` w miejscu, zachowując wsteczną kompatybilność z formularzami zaprojektowanymi
+wcześniej (nowe pola opcjonalne/z sensownymi domyślnymi).
+
+## 2. Zakres (zrealizowany) ✅
+
+- **Model pola** (`FormField`, `AgentStudio.Domain/Agent.cs`): nowe typy `checkbox`/`date`/
+  `email`/`url` obok `text`/`number`/`textarea`/`select`; `DefaultValue`, `Placeholder`,
+  `HelpText`; walidacja `MinLength`/`MaxLength`/`Min`/`Max`/`Pattern` z własnym `ErrorMessage`;
+  grupowanie pól pod wspólnym nagłówkiem sekcji (`GroupName`, pola o tej samej nazwie grupy w
+  kolejności listy renderują się pod jednym nagłówkiem); widoczność warunkowa
+  (`VisibleWhenField`/`VisibleWhenEquals`); numer kroku (`Step`, 1-based) do kreatora
+  wieloetapowego zamiast jednej długiej strony (wszystkie pola `Step=1` = pojedyncza strona,
+  jak dotychczas).
+- **`AgentStudio.Domain/FormFieldValidator.cs`** (nowy plik) — czysty/statyczny walidator,
+  `IsVisible`/`Validate`, współdzielony przez runtime `/run` i podgląd na żywo w studio. Pole
+  ukryte nigdy nie jest walidowane, nawet gdy `Required` i puste.
+- **Wynik uruchomienia** (`AgentVersion`): `FormResultMode` (`inline`/`redirect`/`webhook`,
+  domyślnie `inline`), `FormResultTarget` (URL z placeholderami `{result}`/`{conversationId}`/
+  `{executionId}`), `FormResultMarkdown` (renderowanie wyniku inline jako bezpieczny podzbiór
+  Markdown zamiast czystego tekstu).
+- **Runtime** `/run/{agentId}/{version}`: kreator wieloetapowy, grupowanie, widoczność
+  warunkowa, walidacja klienta przez `FormFieldValidator`, obsługa `FormResultMode`
+  redirect/webhook, renderowanie Markdown wyniku.
+- **Nowy embeddable widget** `<agent-studio-form>` (`wwwroot/widget/agentstudio-form.js`) —
+  iframe wokół istniejącej strony `/run`, ten sam wzorzec co `<agent-studio-chat>`.
+- **Studio UI** (`AgentDetail.razor`): rozszerzony edytor pola (wszystkie nowe właściwości
+  `FormField` pod sekcją `<details>` "Advanced" per pole), przyciski góra/dół do zmiany
+  kolejności pól, interaktywny podgląd na żywo, UI dla trzech nowych pól `AgentVersion`.
+- **Analityka formularzy** (`AnalyticsSummary.FormSubmissions`/`FormFailedSubmissions`,
+  `/analytics`) — dwa nowe stat tiles, liczone z tego samego już pobranego zbioru `logs` w
+  `AnalyticsRepository.GetSummaryAsync` po prefiksie `"form-"` w `ConversationId` (ten sam
+  wzorzec jednorazowej, nietrwałej konwersacji co `SubAgentNode`'s `"subagent-"` w
+  `WorkflowRunner.cs`), bez nowego zapytania do bazy.
+- Migracja `AddFormFieldExtensionsAndResultBehavior` (nowe kolumny na `AgentVersion` +
+  rozszerzony kształt `FormFieldsJson`).
+
+## 3. Kluczowe decyzje projektowe (ladder)
+
+- **Przyciski góra/dół zamiast drag-and-drop** przy zmianie kolejności pól — ten sam efekt
+  końcowy (dowolna kolejność), bez biblioteki JS do przeciągania i bez ręcznego zarządzania
+  zdarzeniami myszy w Blazor Server (gdzie drag-and-drop jest istotnie droższy w implementacji
+  niż w czystym JS-owym SPA). Mniej kodu, mniej stanu do zsynchronizowania między klientem a
+  serwerem.
+- **Widget `<agent-studio-form>` jako iframe wokół istniejącej strony `/run`, nie
+  reimplementacja w czystym JS** — dokładnie ten sam wybór co przy `<agent-studio-chat>` w
+  fazie wcześniejszej: kreator wieloetapowy, walidacja, grupowanie, renderowanie Markdown itd.
+  już istnieją i są przetestowane na `/run`; osobna JS-owa reimplementacja podwoiłaby
+  powierzchnię do utrzymania dla identycznej funkcjonalności.
+- **Minimalny, ręcznie pisany podzbiór Markdown (regex, HTML-escape-first) zamiast nowej
+  zależności NuGet** dla `FormResultMarkdown` — spójne z zerowym-nowych-zależności podejściem
+  konsekwentnie stosowanym w każdej poprzedniej fazie tego projektu (Npgsql do baz danych już
+  był, `SecureHttpExecutor`/integratory piszą własny HTTP-owy kod, tu tak samo: bold/italic/
+  code/linki/nagłówki/łamania linii to garść substytucji regexowych, nie potrzeba pełnego
+  parsera CommonMark dla wyniku jednego promptu).
+- **Analityka formularzy: licznik zgłoszeń + success/error rate, nie prawdziwy funnel
+  wejście-na-formularz → zgłoszenie** — w aplikacji nie ma i nie będzie (świadomie, YAGNI)
+  śledzenia odsłon stron publicznych (`/run`, `/chat`), więc "completion rate" w sensie
+  page-view-vs-submit nie da się policzyć uczciwie. Nazwy pól/UI świadomie unikają słowa
+  "completion rate", żeby nie sugerować czegoś, czego dane nie potwierdzają.
+
+## 4. Realizacja
+
+Zrealizowane przez 3 równoległych subagentów pracujących na rozłącznych plikach, po wspólnej
+fundamentalnej zmianie modelu wykonanej jako pierwszy krok (Domain: rozszerzony `FormField` +
+nowe pola `AgentVersion`; EF: migracja `AddFormFieldExtensionsAndResultBehavior`;
+`AgentService.PublishAsync`/`RepublishAsync`: dopisanie kopiowania trzech nowych pól
+`AgentVersion` — ten sam brakujący-copy wzorzec co przy `MaxSteps`/`FormFields` w fazie 3 etap
+4, tym razem zastosowany od razu przy pisaniu, nie jako poprawka post-factum;
+`FormFieldValidator` jako nowy, samodzielny plik w Domain). Podział pracy po fundamencie:
+(1) runtime `/run` + widget `<agent-studio-form>`, (2) edytor formularza w studio
+(`AgentDetail.razor`) — rozszerzony edytor pól, reorder, podgląd na żywo, UI trzech nowych pól
+`AgentVersion`, (3) analityka zgłoszeń formularzy + testy + dokumentacja (ten dokument).
+
+## 5. Testy ✅
+
+- `FormFieldValidatorTests.cs` (nowy plik) — required z własnym/domyślnym komunikatem błędu,
+  pole opcjonalne puste przechodzi, min/max długość, zakres liczbowy tylko dla `type=number`
+  (nie dla innych typów), regex pattern (dopasowanie i brak dopasowania), pole ukryte przez
+  `VisibleWhenField` nigdy nie walidowane nawet gdy `Required` i puste (najważniejszy
+  przypadek), `IsVisible` bez warunku zawsze `true`, `IsVisible` z warunkiem `true`/`false`
+  poprawnie dla dopasowania/braku dopasowania.
+- `AnalyticsRepositoryTests.cs` — nowy test na zliczanie zgłoszeń formularzy po prefiksie
+  `"form-"` w `ConversationId`, z rozróżnieniem od zwykłych wykonań czatu, plus poprawka
+  zerowanego podsumowania (`FormSubmissions`/`FormFailedSubmissions` = 0 przy braku danych).
+- **Złapany i naprawiony realny bug podczas finalnego przeglądu integracyjnego** (po scaleniu
+  pracy trzech subagentów, przed commitem): `FormFieldValidator.Validate` sprawdzał `Required`
+  ogólnym testem `string.IsNullOrWhiteSpace(value)` — dla checkboxa wartość to zawsze dosłowny
+  string `"true"`/`"false"` po pierwszym dotknięciu, więc jawnie odznaczony wymagany checkbox
+  (`value == "false"`) przechodził walidację, bo `"false"` nie jest pustym stringiem.
+  Naprawione osobnym warunkiem dla `Type == "checkbox"` (wymaga dokładnie `"true"`). Dwa nowe
+  testy regresyjne (`Required_checkbox_explicitly_unchecked_fails_validation`,
+  `Required_checkbox_checked_passes_validation`), potwierdzone też live na żywym serwerze
+  (formularz z wymaganym checkboxem w kroku 2 wieloetapowego kreatora).
+- 142/142 testów zielonych (`dotnet test`).
+
+## 6. Status
+
+✅ Zrealizowane. Model formularza rozszerzony (Domain + migracja), `FormFieldValidator` dzieli
+logikę widoczności/walidacji między runtime i studio, trzy tryby wyniku (`inline`/`redirect`/
+`webhook`) z opcjonalnym renderowaniem Markdown, widget `<agent-studio-form>` do osadzania,
+edytor formularza w studio z podglądem na żywo i reorderem góra/dół, analityka zgłoszeń
+formularzy jako dwa nowe stat tiles na `/analytics`. Build: 0 błędów. Testy: 142/142.
+
+Zweryfikowane end-to-end na żywym serwerze z prawdziwym Postgresem: agent z dwuetapowym
+formularzem (grupa "Basics" w kroku 1 z polem widocznym warunkowo, wymagany checkbox w kroku
+2) utworzony i opublikowany przez REST API, `/run/{id}/1` poprawnie wyrenderował krok 1 z
+nagłówkiem grupy i przyciskiem "Next", pole warunkowe poprawnie ukryte na starcie; panel
+"Form" w studio pokazał sekcję "Advanced" i panel "Preview"; `/analytics` pokazał nowe kafelki
+"Form submissions"/"Form success rate"; widget `agentstudio-form.js` serwowany poprawnie
+(200).

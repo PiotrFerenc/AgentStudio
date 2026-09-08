@@ -134,7 +134,12 @@ public sealed record AnalyticsSummary(
     int ActiveAgents,
     double AvgDurationSeconds,
     List<AgentUsage> ByAgent,
-    List<DailyCount> ByDay);
+    List<DailyCount> ByDay,
+    // Form submission count + failure count only — there's no page-view tracking in this app,
+    // so this is NOT a true page-view-vs-submit funnel completion rate, just submissions and
+    // their success/error split.
+    int FormSubmissions,
+    int FormFailedSubmissions);
 
 public sealed record AgentUsage(Guid AgentId, string AgentName, int Executions, int Failed, double AvgDurationSeconds);
 

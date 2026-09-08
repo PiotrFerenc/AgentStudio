@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 123 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 142 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -153,7 +153,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 123 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 142 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -169,7 +169,12 @@ dotnet test
 # (config expandowany przed wywołaniem, nieznana nazwa integratora → czytelny błąd,
 # GitLab/Jira: URL/nagłówki/auth/body budowane poprawnie przez CapturingHandler, Jira pomija
 # pole description gdy puste (ADF nie akceptuje pustego text), odpowiedź integratora ucięta
-# ponad 1MB zamiast buforowana bez limitu)
+# ponad 1MB zamiast buforowana bez limitu), FormFieldValidator (required + własny/domyślny
+# komunikat błędu, min/max długość, zakres liczbowy tylko dla type=number, regex pattern,
+# pole ukryte przez VisibleWhenField nigdy nie jest walidowane nawet gdy required, wymagany
+# checkbox odznaczony jawnie na "false" faktycznie odrzucany — nie tylko pusta wartość),
+# analityka zgłoszeń formularzy (prefiks "form-" w ConversationId, oddzielenie od zwykłych
+# wykonań czatu)
 ```
 
 ## Wdrożenie (Windows/IIS)
@@ -268,6 +273,30 @@ Alternatywa dla czatu: zaprojektuj w zakładce "Form" na stronie agenta nazwane 
 końcowy wypełnia formularz pod `/run/{agentId}/{version}?key=...` (ta sama bramka na klucz co
 `/chat`) i dostaje jednorazowy wynik — bez wieloturowej rozmowy. Wartości pól stają się
 `{variables.nazwaPola}` w grafie, tak samo jak każda inna zmienna.
+
+**Rozszerzenie formularzy.** Pole formularza (`FormField`) ma dziś więcej niż
+text/number/textarea/select: dochodzą checkbox/date/email/url, wartość domyślna, placeholder,
+tekst pomocniczy, walidacja (required, min/max długość, zakres liczbowy, wzorzec regex z
+własnym komunikatem błędu), grupowanie pól pod wspólnym nagłówkiem sekcji (`GroupName`),
+widoczność warunkowa (`VisibleWhenField`/`VisibleWhenEquals` — pole ukryte nigdy nie jest
+walidowane, nawet jeśli jest wymagane) i numer kroku (`Step`) do wieloetapowego kreatora zamiast
+jednej długiej strony. Logikę widoczności/walidacji trzyma jedno miejsce,
+`AgentStudio.Domain/FormFieldValidator.cs`, używane zarówno przez `/run` jak i przez podgląd na
+żywo w studio.
+
+Wynik uruchomienia formularza steruje `AgentVersion.FormResultMode`: `inline` (domyślnie,
+wyświetlony na stronie — opcjonalnie jako uproszczony Markdown, `FormResultMarkdown`, bez nowej
+zależności NuGet), `redirect` (przekierowanie na `FormResultTarget`, wspiera placeholdery
+`{result}`/`{conversationId}`/`{executionId}`) albo `webhook` (POST wyniku na
+`FormResultTarget`). Edytor formularza w studio (`AgentDetail.razor`) ma teraz podgląd na żywo
+i przyciski góra/dół do zmiany kolejności pól (celowo bez drag-and-drop — mniej kodu, te same
+efekty). Formularz da się też osadzić na obcej stronie widgetem `<agent-studio-form>`
+(`wwwroot/widget/agentstudio-form.js`) — iframe wokół istniejącej strony `/run`, ten sam wzorzec
+co `<agent-studio-chat>`, nie osobna reimplementacja w JS.
+
+Analityka (niżej) liczy też zgłoszenia formularzy — wyłącznie licznik zgłoszeń i
+success/error rate, **nie** prawdziwy funnel wejście-na-stronę → zgłoszenie (w aplikacji nie ma
+śledzenia odsłon).
 
 ## Analityka (faza 3)
 

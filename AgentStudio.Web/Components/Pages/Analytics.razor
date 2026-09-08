@@ -34,6 +34,14 @@ else
             <span class="analytics-tile-value">@(_summary.AvgDurationSeconds.ToString("0.0"))s</span>
             <span class="analytics-tile-label">Avg duration</span>
         </div>
+        <div class="analytics-tile">
+            <span class="analytics-tile-value">@_summary.FormSubmissions</span>
+            <span class="analytics-tile-label">Form submissions</span>
+        </div>
+        <div class="analytics-tile">
+            <span class="analytics-tile-value">@FormSuccessRatePercent</span>
+            <span class="analytics-tile-label">Form success rate</span>
+        </div>
     </div>
 
     <div class="panel">
@@ -109,6 +117,13 @@ else
         _summary is null || _summary.TotalExecutions == 0
             ? "0%"
             : $"{(double)_summary.FailedExecutions / _summary.TotalExecutions * 100:0.0}%";
+
+    // Submission-count + success/error-rate only — not a page-view-vs-submit funnel completion
+    // rate (no page-view tracking exists in this app).
+    private string FormSuccessRatePercent =>
+        _summary is null || _summary.FormSubmissions == 0
+            ? "—"
+            : $"{(double)(_summary.FormSubmissions - _summary.FormFailedSubmissions) / _summary.FormSubmissions * 100:0.0}%";
 
     protected override async Task OnInitializedAsync() => _summary = await Api.GetAnalyticsAsync(_days);
 }

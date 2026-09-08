@@ -5,7 +5,10 @@
 @inject AgentStudio.Application.IProviderRepository Providers
 @inject AgentStudio.Application.AgentService AgentService
 @inject AgentStudio.Application.WorkflowRunner Runner
+@inject Microsoft.AspNetCore.Components.NavigationManager Nav
+@inject IHttpClientFactory HttpClientFactory
 @using AgentStudio.Domain
+@using System.Text.RegularExpressions
 
 @if (_notFound)
 {
@@ -44,13 +47,21 @@ else if (_agent is not null && _version is not null)
                 }
                 else
                 {
-                    @foreach (var f in _version.FormFields)
+                    var stepFields = _version.FormFields.Where(f => f.Step == _currentStep).ToList();
+                    string? prevGroup = null;
+                    @foreach (var f in stepFields)
                     {
+                        if (!FormFieldValidator.IsVisible(f, _values)) continue;
+                        if (!string.IsNullOrEmpty(f.GroupName) && f.GroupName != prevGroup)
+                        {
+                            <h3 class="run-group-header">@f.GroupName</h3>
+                        }
+                        prevGroup = f.GroupName;
                         <div class="run-field">
                             <label>@f.Label @if (f.Required) { <span class="run-required">*</span> }</label>
                             @if (f.Type == "textarea")
                             {
-                                <textarea @bind="_values[f.Name]" @bind:event="oninput"></textarea>
+                                <textarea @bind="_values[f.Name]" @bind:event="oninput" placeholder="@f.Placeholder"></textarea>
                             }
                             else if (f.Type == "select")
                             {
@@ -62,24 +73,63 @@ else if (_agent is not null && _version is not null)
                                     }
                                 </select>
                             }
+                            else if (f.Type == "checkbox")
+                            {
+                                <input type="checkbox" class="run-checkbox"
+                                       checked="@(_values.GetValueOrDefault(f.Name) == "true")"
+                                       @onchange="@(e => _values[f.Name] = (bool)(e.Value ?? false) ? "true" : "false")" />
+                            }
                             else
                             {
-                                <input type="@(f.Type == "number" ? "number" : "text")" @bind="_values[f.Name]" @bind:event="oninput" />
+                                <input type="@InputTypeFor(f.Type)" @bind="_values[f.Name]" @bind:event="oninput" placeholder="@f.Placeholder" />
+                            }
+                            @if (!string.IsNullOrEmpty(f.HelpText))
+                            {
+                                <p class="run-help">@f.HelpText</p>
                             }
                         </div>
                     }
-                    <button class="run-submit" @onclick="SubmitAsync" disabled="@_sending">@(_sending ? "Running…" : "Run")</button>
+                    @if (_isWizard)
+                    {
+                        <div class="run-wizard-nav">
+                            <button class="run-back" @onclick="GoBack" disabled="@(_currentStep <= 1 || _sending)">Back</button>
+                            @if (_currentStep < _maxStep)
+                            {
+                                <button class="run-submit run-next" @onclick="GoNext" disabled="@_sending">Next</button>
+                            }
+                            else
+                            {
+                                <button class="run-submit" @onclick="SubmitAsync" disabled="@_sending">@(_sending ? "Running…" : "Run")</button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="run-submit" @onclick="SubmitAsync" disabled="@_sending">@(_sending ? "Running…" : "Run")</button>
+                    }
                 }
-                @if (_error is not null)
+                @if (_errors.Count > 0)
                 {
-                    <p class="run-error">@_error</p>
+                    <ul class="run-error-list">
+                        @foreach (var e in _errors)
+                        {
+                            <li>@e</li>
+                        }
+                    </ul>
                 }
             </div>
             @if (_result is not null)
             {
                 <div class="run-result">
                     <span class="run-result-label">Result</span>
-                    <div class="run-result-body">@_result</div>
+                    @if (_version.FormResultMarkdown && !_result.Contains("[error]"))
+                    {
+                        <div class="run-result-body">@((MarkupString)RenderMarkdown(_result))</div>
+                    }
+                    else
+                    {
+                        <div class="run-result-body">@_result</div>
+                    }
                 </div>
             }
             else if (_sending)
@@ -128,6 +178,7 @@ else if (_agent is not null && _version is not null)
         background: #fff;
         transition: border-color .12s, box-shadow .12s;
     }
+    .run-field input[type="checkbox"] { width: auto; box-sizing: content-box; }
     .run-field textarea { min-height: 90px; resize: vertical; }
     .run-field input:focus,
     .run-field textarea:focus,
@@ -136,6 +187,20 @@ else if (_agent is not null && _version is not null)
         border-color: #3b5bdb;
         box-shadow: 0 0 0 3px #edf0fd;
     }
+    .run-help {
+        font-size: .76rem;
+        color: #8b8a92;
+        margin: .35rem 0 0;
+    }
+    .run-group-header {
+        font-size: .85rem;
+        font-weight: 700;
+        color: #16161a;
+        margin: 1.4rem 0 .8rem;
+        padding-bottom: .4rem;
+        border-bottom: 1px solid #e5e4e0;
+    }
+    .run-group-header:first-child { margin-top: 0; }
     .run-submit {
         width: 100%;
         background: #16161a;
@@ -151,11 +216,27 @@ else if (_agent is not null && _version is not null)
     }
     .run-submit:hover:not(:disabled) { background: #2a2a31; }
     .run-submit:disabled { opacity: .5; cursor: default; }
-    .run-error {
+    .run-wizard-nav { display: flex; gap: .6rem; }
+    .run-wizard-nav .run-submit { flex: 1; }
+    .run-back {
+        flex: 1;
+        background: #fff;
+        color: #16161a;
+        border: 1px solid #e5e4e0;
+        border-radius: 8px;
+        padding: .7rem 1.15rem;
+        cursor: pointer;
+        font-size: .92rem;
+        font-weight: 650;
+        font-family: inherit;
+    }
+    .run-back:disabled { opacity: .5; cursor: default; }
+    .run-error-list {
         color: #e03131;
         font-size: .82rem;
         margin: .85rem 0 0;
-        text-align: center;
+        padding-left: 1.1rem;
+        text-align: left;
     }
     .run-result {
         max-width: 480px;
@@ -181,6 +262,7 @@ else if (_agent is not null && _version is not null)
         line-height: 1.5;
         color: #16161a;
     }
+    .run-result-body a { color: #3b5bdb; }
     .run-result-pending {
         display: flex;
         align-items: center;
@@ -221,7 +303,11 @@ else if (_agent is not null && _version is not null)
     private readonly Dictionary<string, string> _values = new();
     private bool _sending;
     private string? _result;
-    private string? _error;
+    private List<string> _errors = new();
+
+    private int _currentStep = 1;
+    private int _maxStep = 1;
+    private bool _isWizard => _maxStep > 1;
 
     protected override async Task OnInitializedAsync()
     {
@@ -243,7 +329,9 @@ else if (_agent is not null && _version is not null)
 
         _provider = await Providers.GetByNameAsync(_agent.ModelProviderName);
         foreach (var f in _version.FormFields)
-            _values[f.Name] = "";
+            _values[f.Name] = f.DefaultValue ?? "";
+
+        _maxStep = _version.FormFields.Count == 0 ? 1 : _version.FormFields.Max(f => f.Step);
 
         if (!string.IsNullOrWhiteSpace(QueryKey))
             await TryKeyAsync(QueryKey);
@@ -270,19 +358,45 @@ else if (_agent is not null && _version is not null)
         if (e.Key == "Enter") await SubmitKey();
     }
 
+    private static string InputTypeFor(string type) => type switch
+    {
+        "number" or "date" or "email" or "url" => type,
+        _ => "text"
+    };
+
+    private void GoBack()
+    {
+        if (_currentStep > 1) _currentStep--;
+        _errors.Clear();
+    }
+
+    private void GoNext()
+    {
+        if (_version is null) return;
+        var stepFields = _version.FormFields.Where(f => f.Step == _currentStep).ToList();
+        var errs = FormFieldValidator.Validate(stepFields, _values);
+        if (errs.Count > 0)
+        {
+            _errors = errs;
+            return;
+        }
+        _errors = new();
+        _currentStep++;
+    }
+
     private async Task SubmitAsync()
     {
         if (_agent is null || _version is null || _provider is null) return;
 
-        var missing = _version.FormFields.Where(f => f.Required && string.IsNullOrWhiteSpace(_values.GetValueOrDefault(f.Name)));
-        if (missing.Any())
+        var errs = FormFieldValidator.Validate(_version.FormFields, _values);
+        if (errs.Count > 0)
         {
-            _error = $"Required: {string.Join(", ", missing.Select(f => f.Label))}";
+            _errors = errs;
             return;
         }
 
         _sending = true;
-        _error = null;
+        _errors = new();
         _result = null;
 
         try
@@ -299,15 +413,65 @@ else if (_agent is not null && _version is not null)
             await foreach (var chunk in Runner.RunAsync(_agent, _version, _provider, conversation, "", formValues: _values))
                 buffer.Append(chunk);
 
-            _result = buffer.ToString();
+            var result = buffer.ToString();
+            var success = !result.Contains("[error]");
+            var mode = _version.FormResultMode; // anything other than "redirect"/"webhook" is treated as "inline" below
+
+            if (success && mode == "redirect" && !string.IsNullOrWhiteSpace(_version.FormResultTarget))
+            {
+                var url = ExpandPlaceholders(_version.FormResultTarget, result, conversation.ConversationId, Runner.LastExecutionId);
+                Nav.NavigateTo(url, forceLoad: true);
+                return; // leaving the app — nothing left to render here
+            }
+
+            if (success && mode == "webhook" && !string.IsNullOrWhiteSpace(_version.FormResultTarget))
+            {
+                var url = ExpandPlaceholders(_version.FormResultTarget, result, conversation.ConversationId, Runner.LastExecutionId);
+                try
+                {
+                    var client = HttpClientFactory.CreateClient("agentstudio-http-tool");
+                    await client.PostAsJsonAsync(url, new { result, conversationId = conversation.ConversationId, executionId = Runner.LastExecutionId });
+                }
+                catch (Exception ex)
+                {
+                    result += $" (webhook delivery failed: {ex.Message})";
+                }
+                // A webhook target isn't necessarily the browser — the visitor still needs to
+                // see their submission went through, so fall through to the inline result below.
+            }
+
+            _result = result;
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            _errors = new List<string> { ex.Message };
         }
         finally
         {
             _sending = false;
         }
+    }
+
+    private static string ExpandPlaceholders(string template, string result, string conversationId, string? executionId) =>
+        template
+            .Replace("{result}", Uri.EscapeDataString(result))
+            .Replace("{conversationId}", Uri.EscapeDataString(conversationId))
+            .Replace("{executionId}", Uri.EscapeDataString(executionId ?? ""));
+
+    // Intentionally a minimal regex-based subset, not a CommonMark parser — this project has zero
+    // new NuGet dependencies across 4 phases, and a form result only needs a handful of inline
+    // styles. Escaping first (mandatory) is what keeps this safe against markup injection.
+    private static string RenderMarkdown(string raw)
+    {
+        var s = System.Net.WebUtility.HtmlEncode(raw);
+        s = Regex.Replace(s, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
+        s = Regex.Replace(s, @"\*(.+?)\*", "<em>$1</em>");
+        s = Regex.Replace(s, "`(.+?)`", "<code>$1</code>");
+        s = Regex.Replace(s, @"\[([^\]]+)\]\((https?://[^\s)]+)\)", "<a href=\"$2\" rel=\"noopener noreferrer\" target=\"_blank\">$1</a>");
+        s = Regex.Replace(s, "(?m)^# (.+)$", "<h3>$1</h3>");
+        s = s.Replace("\r\n", "\n");
+        s = Regex.Replace(s, "\n\n+", "</p><p>");
+        s = s.Replace("\n", "<br/>");
+        return $"<p>{s}</p>";
     }
 }

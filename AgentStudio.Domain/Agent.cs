@@ -77,6 +77,20 @@ public sealed class AgentVersion
         set => FormFieldsJson = System.Text.Json.JsonSerializer.Serialize(value, AgentStudioJson.Options);
     }
 
+    /// <summary>What happens with a form run's result: "inline" (default, shown on the page),
+    /// "redirect" (browser navigates to FormResultTarget) or "webhook" (server POSTs the result
+    /// to FormResultTarget, then still shows a confirmation — a webhook target isn't necessarily
+    /// meant for the browser, but the visitor still needs to see the submission succeeded).</summary>
+    public string FormResultMode { get; set; } = "inline";
+
+    /// <summary>URL for "redirect"/"webhook" modes. Supports {result}/{conversationId}/
+    /// {executionId} placeholders, expanded the same way workflow templates are.</summary>
+    public string? FormResultTarget { get; set; }
+
+    /// <summary>Renders an inline result as Markdown (a small safe subset, not full CommonMark —
+    /// see MinimalMarkdown) instead of plain text. Ignored for "redirect"/"webhook".</summary>
+    public bool FormResultMarkdown { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? PublishedAt { get; set; }
 }
@@ -89,12 +103,44 @@ public sealed class FormField
     public string Name { get; set; } = "";
     public string Label { get; set; } = "";
 
-    /// <summary>text | number | textarea | select.</summary>
+    /// <summary>text | number | textarea | select | checkbox | date | email | url.</summary>
     public string Type { get; set; } = "text";
 
     /// <summary>Choices for Type == "select".</summary>
     public List<string> Options { get; set; } = new();
     public bool Required { get; set; }
+
+    public string? DefaultValue { get; set; }
+    public string? Placeholder { get; set; }
+    public string? HelpText { get; set; }
+
+    /// <summary>Text length bounds (text/textarea/email/url). Null = unbounded.</summary>
+    public int? MinLength { get; set; }
+    public int? MaxLength { get; set; }
+
+    /// <summary>Numeric bounds (Type == "number"). Null = unbounded.</summary>
+    public double? Min { get; set; }
+    public double? Max { get; set; }
+
+    /// <summary>Optional regex the value must match (text/email/url). Validated server-side in
+    /// FormFieldValidator — never trust a client-side-only check for a public endpoint.</summary>
+    public string? Pattern { get; set; }
+
+    /// <summary>Shown instead of a generic message when Pattern/Min/Max/Length validation fails.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Fields sharing a non-null GroupName render under one section header, in field
+    /// order — no separate "sections" collection, the existing field list already carries order.</summary>
+    public string? GroupName { get; set; }
+
+    /// <summary>When set, this field is only shown/required/validated while the field named
+    /// VisibleWhenField currently equals VisibleWhenEquals — both null means always visible.</summary>
+    public string? VisibleWhenField { get; set; }
+    public string? VisibleWhenEquals { get; set; }
+
+    /// <summary>1-based wizard page number. All fields defaulting to 1 renders as today's
+    /// single-page form; using 2+ turns the form into a multi-step wizard.</summary>
+    public int Step { get; set; } = 1;
 }
 
 public sealed class WorkflowGraph

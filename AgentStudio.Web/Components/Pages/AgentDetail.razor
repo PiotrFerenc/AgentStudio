@@ -138,6 +138,28 @@ else
     <div class="panel">
         <h2>Form (alternative to chat)</h2>
         <p style="color:#868e96;font-size:.85rem">Named fields become <code>{variables.name}</code> in the graph. Published together with the graph — publish a new version to expose changes at <code>/run/{agentId}/{version}</code>.</p>
+
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.75rem">
+            <div style="flex:1;min-width:160px">
+                <label style="margin-top:0">Result mode</label>
+                <select @bind="_formResultMode">
+                    <option value="inline">inline</option>
+                    <option value="redirect">redirect</option>
+                    <option value="webhook">webhook</option>
+                </select>
+            </div>
+            <div style="flex:2;min-width:260px">
+                <label style="margin-top:0">Result target (URL — supports {result}/{conversationId}/{executionId})</label>
+                <input type="text" @bind="_formResultTarget" @bind:event="oninput" placeholder="https://example.com/hook?r={result}" />
+            </div>
+            <div style="min-width:160px;display:flex;align-items:flex-end;padding-bottom:.5rem">
+                <label style="margin:0;display:flex;align-items:center;gap:.4rem">
+                    <input type="checkbox" style="width:auto;margin:0" @bind="_formResultMarkdown" />
+                    Render inline result as Markdown
+                </label>
+            </div>
+        </div>
+
         @if (_formFields.Count == 0)
         {
             <p>No fields yet.</p>
@@ -145,7 +167,7 @@ else
         else
         {
             <table>
-                <thead><tr><th>Name</th><th>Label</th><th>Type</th><th>Options (comma-separated)</th><th>Required</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Label</th><th>Type</th><th>Options (comma-separated)</th><th>Required</th><th>Order</th><th></th></tr></thead>
                 <tbody>
                     @foreach (var f in _formFields)
                     {
@@ -158,17 +180,155 @@ else
                                     <option value="number">number</option>
                                     <option value="textarea">textarea</option>
                                     <option value="select">select</option>
+                                    <option value="checkbox">checkbox</option>
+                                    <option value="date">date</option>
+                                    <option value="email">email</option>
+                                    <option value="url">url</option>
                                 </select>
                             </td>
                             <td><input type="text" value="@string.Join(",", f.Options)" @onchange="e => SetOptions(f, e)" disabled="@(f.Type != FormFieldTypeSelect)" /></td>
                             <td><input type="checkbox" style="width:auto" @bind="f.Required" /></td>
+                            <td style="white-space:nowrap">
+                                <button class="secondary" style="margin:0 .25rem 0 0;padding:.15rem .5rem" title="Move up" @onclick="() => MoveFieldUp(f)" disabled="@(_formFields.IndexOf(f) == 0)">▲</button>
+                                <button class="secondary" style="margin:0;padding:.15rem .5rem" title="Move down" @onclick="() => MoveFieldDown(f)" disabled="@(_formFields.IndexOf(f) == _formFields.Count - 1)">▼</button>
+                            </td>
                             <td><button class="secondary" @onclick="() => _formFields.Remove(f)">Remove</button></td>
+                        </tr>
+                        <tr>
+                            <td colspan="7" style="padding:0 .75rem .9rem">
+                                <details>
+                                    <summary style="cursor:pointer;font-size:.78rem;color:var(--ink-2);font-weight:600">Advanced</summary>
+                                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0 1rem;margin-top:.25rem">
+                                        <div>
+                                            <label>Default value</label>
+                                            <input type="text" @bind="f.DefaultValue" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Placeholder</label>
+                                            <input type="text" @bind="f.Placeholder" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Help text</label>
+                                            <input type="text" @bind="f.HelpText" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Min length</label>
+                                            <input type="number" @bind="f.MinLength" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Max length</label>
+                                            <input type="number" @bind="f.MaxLength" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Min (number type)</label>
+                                            <input type="number" @bind="f.Min" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Max (number type)</label>
+                                            <input type="number" @bind="f.Max" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Pattern (regex)</label>
+                                            <input type="text" @bind="f.Pattern" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Error message</label>
+                                            <input type="text" @bind="f.ErrorMessage" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Group name</label>
+                                            <input type="text" @bind="f.GroupName" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Visible when field</label>
+                                            <select @bind="f.VisibleWhenField">
+                                                <option value="">-- none --</option>
+                                                @foreach (var other in _formFields.Where(x => x != f && !string.IsNullOrWhiteSpace(x.Name)))
+                                                {
+                                                    <option value="@other.Name">@other.Name</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label>Visible when equals</label>
+                                            <input type="text" @bind="f.VisibleWhenEquals" @bind:event="oninput" />
+                                        </div>
+                                        <div>
+                                            <label>Step (wizard page)</label>
+                                            <input type="number" min="1" @bind="f.Step" @bind:event="oninput" />
+                                        </div>
+                                    </div>
+                                </details>
+                            </td>
                         </tr>
                     }
                 </tbody>
             </table>
         }
         <button class="secondary" @onclick="AddField">Add field</button>
+    </div>
+
+    <div class="panel">
+        <h2>Preview</h2>
+        <p style="color:#868e96;font-size:.85rem">Live preview of the current (unsaved) form fields as an end user would see them. Not connected to any run.</p>
+        @if (_formFields.Count == 0)
+        {
+            <p>No fields yet.</p>
+        }
+        else
+        {
+            string? lastGroup = null;
+            @foreach (var f in _formFields)
+            {
+                if (!FormFieldValidator.IsVisible(f, _previewValues)) continue;
+                var showGroupHeader = f.GroupName != lastGroup && !string.IsNullOrWhiteSpace(f.GroupName);
+                lastGroup = f.GroupName;
+                if (showGroupHeader)
+                {
+                    <h3 style="margin-top:1rem">@f.GroupName</h3>
+                }
+                <div style="margin-bottom:.9rem">
+                    <label style="margin-top:.4rem">
+                        @f.Label
+                        @if (f.Required)
+                        {
+                            <span style="color:var(--err)">*</span>
+                        }
+                        @if (f.Step > 1)
+                        {
+                            <span class="badge" style="margin-left:.4rem">Step @f.Step</span>
+                        }
+                    </label>
+                    @if (!string.IsNullOrWhiteSpace(f.HelpText))
+                    {
+                        <p style="color:#868e96;font-size:.78rem;margin:.1rem 0">@f.HelpText</p>
+                    }
+                    @if (f.Type == "textarea")
+                    {
+                        <textarea placeholder="@f.Placeholder" value="@GetPreviewValue(f.Name)" @oninput="e => SetPreviewValue(f.Name, e)"></textarea>
+                    }
+                    else if (f.Type == FormFieldTypeSelect)
+                    {
+                        <select value="@GetPreviewValue(f.Name)" @onchange="e => SetPreviewValue(f.Name, e)">
+                            <option value="">-- select --</option>
+                            @foreach (var o in f.Options)
+                            {
+                                <option value="@o">@o</option>
+                            }
+                        </select>
+                    }
+                    else if (f.Type == "checkbox")
+                    {
+                        <input type="checkbox" style="width:auto" checked="@(GetPreviewValue(f.Name) == "true")" @onchange="e => SetPreviewValue(f.Name, e)" />
+                    }
+                    else
+                    {
+                        var inputType = f.Type is "number" or "date" or "email" or "url" ? f.Type : "text";
+                        <input type="@inputType" placeholder="@f.Placeholder" value="@GetPreviewValue(f.Name)" @oninput="e => SetPreviewValue(f.Name, e)" />
+                    }
+                </div>
+            }
+        }
     </div>
 
     <div class="panel">
@@ -252,6 +412,10 @@ else
     private string DraftStatus = "";
     private int _maxSteps = 100;
     private List<FormField> _formFields = new();
+    private string _formResultMode = "inline";
+    private string? _formResultTarget;
+    private bool _formResultMarkdown;
+    private Dictionary<string, string> _previewValues = new();
     private ValidationResultDto? _validation;
     private string? _publishMessage;
 
@@ -297,6 +461,30 @@ else
     private static void SetOptions(FormField f, ChangeEventArgs e) =>
         f.Options = ((string?)e.Value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
+    private void MoveFieldUp(FormField f)
+    {
+        var idx = _formFields.IndexOf(f);
+        if (idx <= 0) return;
+        (_formFields[idx - 1], _formFields[idx]) = (_formFields[idx], _formFields[idx - 1]);
+    }
+
+    private void MoveFieldDown(FormField f)
+    {
+        var idx = _formFields.IndexOf(f);
+        if (idx < 0 || idx >= _formFields.Count - 1) return;
+        (_formFields[idx + 1], _formFields[idx]) = (_formFields[idx], _formFields[idx + 1]);
+    }
+
+    private string GetPreviewValue(string name) => _previewValues.GetValueOrDefault(name, "");
+
+    private void SetPreviewValue(string name, ChangeEventArgs e) =>
+        _previewValues[name] = e.Value switch
+        {
+            bool b => b ? "true" : "false",
+            null => "",
+            var v => v.ToString() ?? ""
+        };
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
@@ -308,6 +496,9 @@ else
             DraftStatus = Agent.Draft.Status.ToString();
             _maxSteps = Agent.Draft.MaxSteps;
             _formFields = Agent.Draft.FormFields;
+            _formResultMode = Agent.Draft.FormResultMode;
+            _formResultTarget = Agent.Draft.FormResultTarget;
+            _formResultMarkdown = Agent.Draft.FormResultMarkdown;
         }
         _logs = await Api.ListLogsAsync(Id);
         _documents = await Api.ListDocumentsAsync(Id);
@@ -360,7 +551,7 @@ else
 
     private async Task SaveAsync()
     {
-        _validation = await Api.SaveDraftAsync(Id, _graph, _maxSteps, _formFields);
+        _validation = await Api.SaveDraftAsync(Id, _graph, _maxSteps, _formFields, _formResultMode, _formResultTarget, _formResultMarkdown);
         DraftStatus = _validation.IsValid ? "Validated" : "Draft";
     }
 

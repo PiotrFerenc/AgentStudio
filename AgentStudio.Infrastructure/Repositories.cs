@@ -123,7 +123,7 @@ public sealed class AnalyticsRepository : IAnalyticsRepository
         var since = DateTimeOffset.UtcNow.AddDays(-days);
         var logs = await _db.ExecutionLogs
             .Where(l => l.StartedAt >= since)
-            .Select(l => new { l.AgentId, l.StartedAt, l.CompletedAt, l.Status })
+            .Select(l => new { l.AgentId, l.StartedAt, l.CompletedAt, l.Status, l.ConversationId })
             .ToListAsync(ct);
 
         var agentNames = await _db.Agents.Select(a => new { a.Id, a.Name }).ToDictionaryAsync(a => a.Id, a => a.Name, ct);
@@ -151,12 +151,19 @@ public sealed class AnalyticsRepository : IAnalyticsRepository
             .OrderBy(d => d.Date)
             .ToList();
 
+        // "form-" prefix is the same throwaway-conversation convention SubAgentNode uses with
+        // "subagent-" — see WorkflowRunner.cs. Reuses the logs list already fetched above, no
+        // extra query.
+        var formLogs = logs.Where(l => l.ConversationId.StartsWith("form-", StringComparison.Ordinal)).ToList();
+
         return new AnalyticsSummary(
             TotalExecutions: logs.Count,
             FailedExecutions: logs.Count(l => l.Status == "failed"),
             ActiveAgents: byAgent.Count,
             AvgDurationSeconds: AvgSeconds(logs.Select(l => (l.StartedAt, l.CompletedAt))),
             ByAgent: byAgent,
-            ByDay: byDay);
+            ByDay: byDay,
+            FormSubmissions: formLogs.Count,
+            FormFailedSubmissions: formLogs.Count(l => l.Status == "failed"));
     }
 }

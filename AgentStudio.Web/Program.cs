@@ -174,7 +174,7 @@ api.MapPut("/agents/{id:guid}/draft", async (Guid id, UpdateDraftRequest req, Ag
 {
     try
     {
-        return Results.Ok(await service.UpdateDraftAsync(id, req.Graph, req.MaxSteps, req.FormFields, ct));
+        return Results.Ok(await service.UpdateDraftAsync(id, req.Graph, req.MaxSteps, req.FormFields, req.FormResultMode, req.FormResultTarget, req.FormResultMarkdown, ct));
     }
     catch (KeyNotFoundException)
     {

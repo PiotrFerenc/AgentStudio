@@ -11,11 +11,11 @@ public class AnalyticsRepositoryTests
     private static AgentStudioDbContext NewDb(string dbName) =>
         new(new DbContextOptionsBuilder<AgentStudioDbContext>().UseInMemoryDatabase(dbName).Options);
 
-    private static ExecutionLog Log(Guid agentId, string status, DateTimeOffset started, TimeSpan? duration) =>
+    private static ExecutionLog Log(Guid agentId, string status, DateTimeOffset started, TimeSpan? duration, string? conversationId = null) =>
         new()
         {
             ExecutionId = Guid.NewGuid().ToString(),
-            ConversationId = Guid.NewGuid().ToString(),
+            ConversationId = conversationId ?? Guid.NewGuid().ToString(),
             AgentId = agentId,
             AgentVersion = 1,
             StartedAt = started,
@@ -98,5 +98,30 @@ public class AnalyticsRepositoryTests
         Assert.Equal(0, summary.AvgDurationSeconds);
         Assert.Empty(summary.ByAgent);
         Assert.Empty(summary.ByDay);
+        Assert.Equal(0, summary.FormSubmissions);
+        Assert.Equal(0, summary.FormFailedSubmissions);
+    }
+
+    [Fact]
+    public async Task GetSummaryAsync_counts_form_submissions_by_conversationId_prefix()
+    {
+        var db = NewDb("analytics-forms");
+        var agent = Guid.NewGuid();
+        db.Agents.Add(new Agent { Id = agent, Name = "Agent" });
+        var now = DateTimeOffset.UtcNow;
+        db.ExecutionLogs.Add(Log(agent, "completed", now, TimeSpan.FromSeconds(1), conversationId: $"form-{Guid.NewGuid():N}"));
+        db.ExecutionLogs.Add(Log(agent, "completed", now, TimeSpan.FromSeconds(1), conversationId: $"form-{Guid.NewGuid():N}"));
+        db.ExecutionLogs.Add(Log(agent, "failed", now, TimeSpan.FromSeconds(1), conversationId: $"form-{Guid.NewGuid():N}"));
+        // ordinary chat-style executions — must not be counted as form submissions
+        db.ExecutionLogs.Add(Log(agent, "completed", now, TimeSpan.FromSeconds(1)));
+        db.ExecutionLogs.Add(Log(agent, "failed", now, TimeSpan.FromSeconds(1)));
+        await db.SaveChangesAsync();
+
+        var repo = new AnalyticsRepository(db);
+        var summary = await repo.GetSummaryAsync(days: 30);
+
+        Assert.Equal(5, summary.TotalExecutions);
+        Assert.Equal(3, summary.FormSubmissions);
+        Assert.Equal(1, summary.FormFailedSubmissions);
     }
 }

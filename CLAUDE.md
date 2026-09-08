@@ -88,6 +88,28 @@ Several entity properties follow the same pattern: a `string XyzJson` column plu
 
 `OpenAiCompatibleChatClientFactory`/`OpenAiCompatibleEmbeddingClientFactory` set `OpenAIClientOptions.NetworkTimeout` from `ModelProviderConfig.TimeoutSeconds` (default 120s, clamped to [1, 600]). Without this, `System.ClientModel`'s own default (100s) silently cancels any `prompt`/`documentSearch` node whose model takes longer than 100s to respond — confirmed live with a mock server that delayed its response 110s: the call failed with `NetworkTimeout` at exactly 100.07s before this fix, succeeded at 110.29s after. `TimeoutSeconds` isn't exposed in `/providers`' UI yet (create-only form) — changing it per-provider means editing the DB column directly.
 
+### Form builder extensions
+
+`AgentStudio.Domain/FormFieldValidator.cs` is a pure/static class (no DI, same spirit as
+`ConditionEvaluator`) used by both the runtime `/run` page and the studio's live form preview.
+Two-method contract: `IsVisible(FormField, IReadOnlyDictionary<string,string> values)` decides
+whether a field with `VisibleWhenField`/`VisibleWhenEquals` set should currently be shown, and
+`Validate(IReadOnlyList<FormField>, values)` returns one error message per invalid *visible*
+field — a hidden field is never validated, even if `Required` and missing, since a value the
+user was never shown can't reasonably be required.
+
+`AgentVersion` gained `FormResultMode` ("inline"/"redirect"/"webhook"), `FormResultTarget`
+(URL, supports `{result}`/`{conversationId}`/`{executionId}` placeholders) and
+`FormResultMarkdown` (bool). Same "jsonb columns on entities" copy lesson above applies here:
+these three needed (and got) the same explicit-copy treatment as `MaxSteps`/`FormFields` in
+`AgentService.PublishAsync`/`RepublishAsync` — a new `AgentVersion` field that isn't copied in
+both of those methods silently reverts to its default on every publish/republish, not just on
+first creation.
+
+`FormResultMarkdown` renders with a deliberately minimal, hand-rolled regex substitution
+(bold/italic/code/links/headers/line breaks) over HTML-escaped input — not a real CommonMark
+parser, no new NuGet dependency. It's a safe subset, not a compliant Markdown renderer.
+
 ### Custom integrators (phase 4)
 
 `IntegratorNode { IntegratorName, Config, ResultVariable }` calls a registered `IIntegrator` by name — the same named-lookup shape as `DatabaseQueryNode`/`ConnectionName`. Writing a new integrator (GitLab/Jira are the reference implementations, in `AgentStudio.Infrastructure/Integrators/`) means implementing `IIntegrator` and adding one `services.AddTransient<IIntegrator, YourClass>()` line in `DependencyInjection.cs` — a code change + rebuild/redeploy, deliberately not a runtime plugin system. `WorkflowRunner` gets `IEnumerable<IIntegrator>` and does a plain `.FirstOrDefault(i => i.Name == ...)` lookup, no separate registry. `Config` values are template-expanded (`{input}`/`{variables.x}`) before reaching the integrator, same rigor as `DatabaseQueryNode.Parameters`. Per-integrator secrets (base URL, API token) live in `appsettings.json` under `Integrators:<Name>`, bound via `IOptions<TOptions>` — same split as `DatabaseConnections`.
