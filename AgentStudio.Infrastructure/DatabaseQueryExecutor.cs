@@ -19,14 +19,17 @@ public sealed class NpgsqlDatabaseQueryExecutor : IDatabaseQueryExecutor
     // use case needs more.
     private const int MaxRows = 100;
 
-    private readonly IDatabaseConnectionRepository _connections;
+    private readonly IDatabaseConnectionProvider _connections;
 
-    public NpgsqlDatabaseQueryExecutor(IDatabaseConnectionRepository connections) => _connections = connections;
+    public NpgsqlDatabaseQueryExecutor(IDatabaseConnectionProvider connections) => _connections = connections;
 
     public async Task<string> ExecuteAsync(DatabaseQueryNode node, IReadOnlyDictionary<string, string> variables, CancellationToken ct = default)
     {
-        var connection = await _connections.GetByNameAsync(node.ConnectionName, ct)
+        var connection = _connections.GetByName(node.ConnectionName)
             ?? throw new InvalidOperationException($"Database connection '{node.ConnectionName}' is not configured.");
+
+        if (!string.Equals(connection.Provider, "postgres", StringComparison.OrdinalIgnoreCase))
+            throw new NotSupportedException($"Connection '{connection.Name}': provider '{connection.Provider}' is not supported yet — only 'postgres' is implemented.");
 
         if (connection.ReadOnly && !IsSingleSelect(node.Query))
             throw new InvalidOperationException($"Connection '{connection.Name}' is read-only — only a single SELECT statement is allowed.");

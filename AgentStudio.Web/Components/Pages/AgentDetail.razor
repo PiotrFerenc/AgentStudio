@@ -311,7 +311,7 @@ else
         _logs = await Api.ListLogsAsync(Id);
         _documents = await Api.ListDocumentsAsync(Id);
         _allAgents = await Api.ListAgentsAsync();
-        _allConnections = await Api.ListDatabaseConnectionsAsync();
+        _allConnections = Api.ListDatabaseConnections();
     }
 
     private async Task UploadDocumentAsync(InputFileChangeEventArgs e)

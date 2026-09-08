@@ -8,97 +8,35 @@
 
 <div class="panel">
     <h2>Database Connections</h2>
-    <p style="color:#868e96;font-size:.85rem">Postgres only. Connection strings are never shown again after saving (like an agent's API key).</p>
-    @if (_connections is null)
+    <p style="color:#868e96;font-size:.85rem">
+        Defined in <code>appsettings.json</code> under <code>DatabaseConnections</code> — not
+        editable here. Add, change or remove a connection by editing the config and restarting
+        the app; connection strings are never shown in this list.
+    </p>
+    @if (_connections.Count == 0)
     {
-        <p>Loading...</p>
-    }
-    else if (_connections.Count == 0)
-    {
-        <p>No connections yet.</p>
+        <p>No connections configured.</p>
     }
     else
     {
         <table>
-            <thead><tr><th>Name</th><th>Read-only</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Provider</th><th>Read-only</th></tr></thead>
             <tbody>
                 @foreach (var c in _connections)
                 {
                     <tr>
                         <td>@c.Name</td>
+                        <td>@c.Provider</td>
                         <td>@(c.ReadOnly ? "yes" : "no — writes allowed")</td>
-                        <td>@c.CreatedAt.ToString("yyyy-MM-dd")</td>
-                        <td><button class="secondary" @onclick="() => DeleteAsync(c.Id)">Delete</button></td>
                     </tr>
                 }
             </tbody>
         </table>
     }
-    @if (_error is not null)
-    {
-        <p class="error-list">@_error</p>
-    }
-</div>
-
-<div class="panel">
-    <h2>Add Connection</h2>
-    <label>Name</label>
-    <input type="text" @bind="_newName" placeholder="e.g. reporting-db" />
-    <label>Connection string (Postgres)</label>
-    <input type="text" @bind="_newConnectionString" placeholder="Host=localhost;Port=5432;Database=...;Username=...;Password=..." />
-    <label>
-        <input type="checkbox" style="width:auto;display:inline-block" @bind="_newReadOnly" />
-        Read-only (only single SELECT statements allowed)
-    </label>
-    <br />
-    <button class="primary" @onclick="CreateAsync" disabled="@_creating">Add</button>
 </div>
 
 @code {
-    private List<DatabaseConnectionConfig>? _connections;
-    private string _newName = "";
-    private string _newConnectionString = "";
-    private bool _newReadOnly = true;
-    private bool _creating;
-    private string? _error;
+    private List<DatabaseConnectionConfig> _connections = new();
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
-
-    private async Task LoadAsync() => _connections = await Api.ListDatabaseConnectionsAsync();
-
-    private async Task CreateAsync()
-    {
-        _creating = true;
-        _error = null;
-        try
-        {
-            await Api.AddDatabaseConnectionAsync(_newName, _newConnectionString, _newReadOnly);
-            _newName = "";
-            _newConnectionString = "";
-            _newReadOnly = true;
-            await LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _creating = false;
-        }
-    }
-
-    private async Task DeleteAsync(Guid id)
-    {
-        _error = null;
-        try
-        {
-            await Api.DeleteDatabaseConnectionAsync(id);
-            await LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-    }
+    protected override void OnInitialized() => _connections = Api.ListDatabaseConnections();
 }

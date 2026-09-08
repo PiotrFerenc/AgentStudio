@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 104 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 105 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -145,7 +145,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 104 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 105 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -155,7 +155,8 @@ dotnet test
 # analityka (agregacja totals/errors/avg duration, filtr okna czasowego, wykonania w toku),
 # formularze (merge formValues do zmiennych, publish/republish kopiuje MaxSteps+FormFields,
 # FormFields getter toleruje niepoprawny/legacy JSON zamiast rzucać), retencja rozmów
-# (purge starych konwersacji, świeże nietknięte)
+# (purge starych konwersacji, świeże nietknięte), nieobsługiwany provider konektora DB
+# odrzucany czytelnym błędem
 ```
 
 ## Wdrożenie (Windows/IIS)
@@ -222,8 +223,19 @@ przynajmniej jedną opublikowaną wersję.
 
 ## Konektory do baz danych (faza 3)
 
-1. `/database-connections` (Admin only) — dodaj nazwaną, tylko-Postgres, connection string
-   (nigdy nie pokazywany ponownie po zapisie), domyślnie read-only.
+1. Zdefiniuj połączenia w `appsettings.json` (sekcja `DatabaseConnections`, tablica) — **nie w
+   panelu**, connection stringi to konfiguracja wdrożeniowa, nie dane aplikacji:
+   ```json
+   "DatabaseConnections": [
+     { "Name": "reporting", "Provider": "postgres", "ConnectionString": "Host=...;...", "ReadOnly": true }
+   ]
+   ```
+   `/database-connections` (Admin only) pokazuje listę tylko do odczytu (nazwa, provider,
+   read-only) — bez connection stringów, bez dodawania/usuwania z panelu. Zmiana wymaga edycji
+   configu i restartu aplikacji. `Provider` dziś obsługuje tylko `"postgres"` (Npgsql już jest
+   zależnością) — pole istnieje pod przyszłe konektory (np. MySQL/SQL Server), żeby dodanie
+   kolejnego nie wymagało zmiany kształtu configu; inna wartość odrzucana czytelnym błędem, nie
+   cicho ignorowana.
 2. Węzeł `databaseQuery` w grafie — wybierz connection, wpisz surowy SQL z placeholderami
    `@nazwa` (nigdy `{variables.x}` bezpośrednio w zapytaniu — to byłby SQL injection), a w
    polu `Parameters` (`nazwa=wartość` per linia) zmapuj każdy placeholder na

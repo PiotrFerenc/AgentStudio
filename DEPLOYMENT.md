@@ -80,6 +80,23 @@ typical Option B / standalone install):
 }
 ```
 
+If agents use the `databaseQuery` workflow node (phase 3), also add a `DatabaseConnections`
+array to the same file — these are config, not admin-panel data, so they're set once per
+deployment rather than through the UI:
+
+```json
+{
+  "DatabaseConnections": [
+    { "Name": "reporting", "Provider": "postgres", "ConnectionString": "Host=...;...", "ReadOnly": true }
+  ]
+}
+```
+
+`Provider` only supports `"postgres"` today; any other value fails clearly at query time rather
+than being silently mishandled. `/database-connections` in the studio (Admin only) shows this
+list read-only (name/provider/read-only flag, never the connection string) — there's no
+add/delete there, only in config.
+
 EF Core migrations run automatically at startup (`MigrateAsync`) — no manual `dotnet ef database update`
 is needed, but the DB user needs DDL rights on first start. The migration is
 `AgentStudio.Infrastructure/Migrations/*_Initial.cs` (Npgsql provider, `jsonb` columns).

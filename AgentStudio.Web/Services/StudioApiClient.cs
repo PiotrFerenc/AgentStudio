@@ -15,7 +15,7 @@ public sealed class StudioApiClient
     private readonly WorkflowRunner _runner;
     private readonly UserService _users;
     private readonly IDocumentIndexer _documents;
-    private readonly IDatabaseConnectionRepository _databaseConnections;
+    private readonly IDatabaseConnectionProvider _databaseConnections;
     private readonly IAnalyticsRepository _analytics;
 
     public StudioApiClient(
@@ -27,7 +27,7 @@ public sealed class StudioApiClient
         WorkflowRunner runner,
         UserService users,
         IDocumentIndexer documents,
-        IDatabaseConnectionRepository databaseConnections,
+        IDatabaseConnectionProvider databaseConnections,
         IAnalyticsRepository analytics)
     {
         _agents = agents;
@@ -121,19 +121,7 @@ public sealed class StudioApiClient
 
     public Task DeleteDocumentAsync(Guid documentId, CancellationToken ct = default) => _documents.DeleteAsync(documentId, ct);
 
-    public Task<List<DatabaseConnectionConfig>> ListDatabaseConnectionsAsync(CancellationToken ct = default) =>
-        _databaseConnections.ListAsync(ct);
-
-    public async Task AddDatabaseConnectionAsync(string name, string connectionString, bool readOnly, CancellationToken ct = default)
-    {
-        await _databaseConnections.AddAsync(new DatabaseConnectionConfig { Name = name, ConnectionString = connectionString, ReadOnly = readOnly }, ct);
-        await _databaseConnections.SaveChangesAsync(ct);
-    }
-
-    public async Task DeleteDatabaseConnectionAsync(Guid id, CancellationToken ct = default)
-    {
-        var connection = await _databaseConnections.GetAsync(id, ct) ?? throw new KeyNotFoundException("Database connection not found.");
-        await _databaseConnections.DeleteAsync(connection, ct);
-        await _databaseConnections.SaveChangesAsync(ct);
-    }
+    /// <summary>Read-only — connections are defined in appsettings.json ("DatabaseConnections"),
+    /// not editable at runtime.</summary>
+    public List<DatabaseConnectionConfig> ListDatabaseConnections() => _databaseConnections.List();
 }

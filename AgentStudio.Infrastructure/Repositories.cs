@@ -97,31 +97,6 @@ public sealed class DocumentRepository : IDocumentRepository
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
 }
 
-public sealed class DatabaseConnectionRepository : IDatabaseConnectionRepository
-{
-    private readonly AgentStudioDbContext _db;
-    public DatabaseConnectionRepository(AgentStudioDbContext db) => _db = db;
-
-    public Task<DatabaseConnectionConfig?> GetByNameAsync(string name, CancellationToken ct = default) =>
-        _db.DatabaseConnections.FirstOrDefaultAsync(c => c.Name == name, ct);
-
-    public Task<DatabaseConnectionConfig?> GetAsync(Guid id, CancellationToken ct = default) =>
-        _db.DatabaseConnections.FirstOrDefaultAsync(c => c.Id == id, ct);
-
-    public Task<List<DatabaseConnectionConfig>> ListAsync(CancellationToken ct = default) =>
-        _db.DatabaseConnections.OrderBy(c => c.Name).ToListAsync(ct);
-
-    public async Task AddAsync(DatabaseConnectionConfig connection, CancellationToken ct = default) => await _db.DatabaseConnections.AddAsync(connection, ct);
-
-    public Task DeleteAsync(DatabaseConnectionConfig connection, CancellationToken ct = default)
-    {
-        _db.DatabaseConnections.Remove(connection);
-        return Task.CompletedTask;
-    }
-
-    public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
-}
-
 public sealed class ExecutionLogRepository : IExecutionLogRepository
 {
     private readonly AgentStudioDbContext _db;

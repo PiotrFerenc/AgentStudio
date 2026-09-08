@@ -105,14 +105,13 @@ public interface IDocumentSearchService
     Task<List<string>> SearchAsync(Guid agentId, string query, int topK, ModelProviderConfig provider, CancellationToken ct = default);
 }
 
-public interface IDatabaseConnectionRepository
+/// <summary>Looks up statically-configured database connections (phase 3) — bound from
+/// appsettings.json, not persisted or edited at runtime. Synchronous: this is in-memory config,
+/// not I/O.</summary>
+public interface IDatabaseConnectionProvider
 {
-    Task<DatabaseConnectionConfig?> GetByNameAsync(string name, CancellationToken ct = default);
-    Task<DatabaseConnectionConfig?> GetAsync(Guid id, CancellationToken ct = default);
-    Task<List<DatabaseConnectionConfig>> ListAsync(CancellationToken ct = default);
-    Task AddAsync(DatabaseConnectionConfig connection, CancellationToken ct = default);
-    Task DeleteAsync(DatabaseConnectionConfig connection, CancellationToken ct = default);
-    Task SaveChangesAsync(CancellationToken ct = default);
+    List<DatabaseConnectionConfig> List();
+    DatabaseConnectionConfig? GetByName(string name);
 }
 
 /// <summary>Runs a DatabaseQueryNode's parameterized SQL against its named connection

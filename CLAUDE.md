@@ -51,7 +51,7 @@ Domain → Application → Infrastructure ↘
        ↘ Contracts ─────────────────→ Web
 ```
 
-- **`AgentStudio.Domain`** — entities (`Agent`, `AgentVersion`, `WorkflowGraph`/`WorkflowNode` subclasses, `ExecutionLog`, `ConversationState`, `User`, `DatabaseConnectionConfig`), `WorkflowValidator`, `ConditionEvaluator`, `CosineSimilarity`, `DocumentChunker`. No dependencies on anything else in the solution.
+- **`AgentStudio.Domain`** — entities (`Agent`, `AgentVersion`, `WorkflowGraph`/`WorkflowNode` subclasses, `ExecutionLog`, `ConversationState`, `User`), plus config POCOs like `DatabaseConnectionConfig`, `WorkflowValidator`, `ConditionEvaluator`, `CosineSimilarity`, `DocumentChunker`. No dependencies on anything else in the solution.
 - **`AgentStudio.Application`** — `WorkflowRunner` (the execution engine), `AgentService`, `UserService`, and all the `I*` interfaces Infrastructure implements (`IAgentRepository`, `IChatClientFactory`, `IDatabaseQueryExecutor`, `IAnalyticsRepository`, etc.).
 - **`AgentStudio.Infrastructure`** — EF Core (`AgentStudioDbContext`, migrations), repository implementations, `SecureHttpExecutor` (SSRF-guarded HTTP tool), chat/embedding client factories (OpenAI-compatible), `NpgsqlDatabaseQueryExecutor`.
 - **`AgentStudio.Contracts`** — DTOs for the Blazor-facing wire format (`WorkflowGraphDto`, `WorkflowNodeDto`, etc.) and `GraphMapper`, which translates between `Domain.WorkflowGraph` and the DTO shape.

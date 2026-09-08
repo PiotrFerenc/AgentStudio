@@ -14,8 +14,6 @@ public sealed record ProviderDto(Guid Id, string Name, string BaseUrl, string De
 public sealed record ExecutionLogDto(string ExecutionId, string ConversationId, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Error, List<ExecutionStepDto> Steps);
 public sealed record ExecutionStepDto(string NodeId, string NodeType, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Detail, string? Error);
 public sealed record DocumentDto(Guid Id, string FileName, DateTimeOffset CreatedAt, int ChunkCount);
-public sealed record CreateDatabaseConnectionRequest(string Name, string ConnectionString, bool ReadOnly = true);
-public sealed record DatabaseConnectionDto(Guid Id, string Name, bool ReadOnly, DateTimeOffset CreatedAt);
 
 public sealed class WorkflowGraphDto
 {

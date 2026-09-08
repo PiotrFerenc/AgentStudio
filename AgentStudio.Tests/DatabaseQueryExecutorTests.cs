@@ -15,26 +15,19 @@ public class DatabaseQueryExecutorTests
     private const string TestConnectionString =
         "Host=localhost;Port=5433;Database=agentstudio;Username=agentstudio;Password=agentstudio";
 
-    private sealed class FixedConnectionRepository : IDatabaseConnectionRepository
+    private sealed class FixedConnectionProvider : IDatabaseConnectionProvider
     {
         private readonly DatabaseConnectionConfig _config;
-        public FixedConnectionRepository(DatabaseConnectionConfig config) => _config = config;
+        public FixedConnectionProvider(DatabaseConnectionConfig config) => _config = config;
 
-        public Task<DatabaseConnectionConfig?> GetByNameAsync(string name, CancellationToken ct = default) =>
-            Task.FromResult(name == _config.Name ? _config : null);
-        public Task<DatabaseConnectionConfig?> GetAsync(Guid id, CancellationToken ct = default) =>
-            Task.FromResult(id == _config.Id ? _config : null);
-        public Task<List<DatabaseConnectionConfig>> ListAsync(CancellationToken ct = default) =>
-            Task.FromResult(new List<DatabaseConnectionConfig> { _config });
-        public Task AddAsync(DatabaseConnectionConfig connection, CancellationToken ct = default) => Task.CompletedTask;
-        public Task DeleteAsync(DatabaseConnectionConfig connection, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public List<DatabaseConnectionConfig> List() => new() { _config };
+        public DatabaseConnectionConfig? GetByName(string name) => name == _config.Name ? _config : null;
     }
 
-    private static (NpgsqlDatabaseQueryExecutor Executor, string ConnectionName) NewExecutor(bool readOnly)
+    private static (NpgsqlDatabaseQueryExecutor Executor, string ConnectionName) NewExecutor(bool readOnly, string provider = "postgres")
     {
-        var config = new DatabaseConnectionConfig { Name = "test-conn", ConnectionString = TestConnectionString, ReadOnly = readOnly };
-        return (new NpgsqlDatabaseQueryExecutor(new FixedConnectionRepository(config)), config.Name);
+        var config = new DatabaseConnectionConfig { Name = "test-conn", ConnectionString = TestConnectionString, ReadOnly = readOnly, Provider = provider };
+        return (new NpgsqlDatabaseQueryExecutor(new FixedConnectionProvider(config)), config.Name);
     }
 
     [Fact]
@@ -107,6 +100,16 @@ public class DatabaseQueryExecutorTests
         using var doc = JsonDocument.Parse(resultJson);
         Assert.Equal(100, doc.RootElement.GetProperty("rowCount").GetInt32());
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Unsupported_provider_throws_clear_error()
+    {
+        var (executor, connName) = NewExecutor(readOnly: true, provider: "mysql");
+        var node = new DatabaseQueryNode { Id = "q", ConnectionName = connName, Query = "SELECT 1", ResultVariable = "r" };
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => executor.ExecuteAsync(node, new Dictionary<string, string>()));
+        Assert.Contains("mysql", ex.Message);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using AgentStudio.Application;
+using AgentStudio.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,7 +42,8 @@ public static class DependencyInjection
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IDocumentIndexer, DocumentIndexer>();
         services.AddScoped<IDocumentSearchService, DocumentSearchService>();
-        services.AddScoped<IDatabaseConnectionRepository, DatabaseConnectionRepository>();
+        services.Configure<List<DatabaseConnectionConfig>>(config.GetSection("DatabaseConnections"));
+        services.AddSingleton<IDatabaseConnectionProvider, DatabaseConnectionProvider>();
         services.AddTransient<IDatabaseQueryExecutor, NpgsqlDatabaseQueryExecutor>();
         services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
         services.Configure<ConversationRetentionOptions>(config.GetSection("ConversationRetention"));

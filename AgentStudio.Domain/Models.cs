@@ -37,19 +37,21 @@ public sealed class DocumentChunk
     public List<float> Embedding { get; set; } = new();
 }
 
-/// <summary>A named Postgres connection agents can query via DatabaseQueryNode (phase 3).
-/// Postgres-only in v1 — Npgsql is already a project dependency, zero new NuGet packages.
-/// ConnectionString is stored plaintext, consistent with the existing (also plaintext)
-/// ModelProviderConfig.ApiKey — not introducing a new, inconsistent standard for one table.</summary>
+/// <summary>A named database connection agents can query via DatabaseQueryNode (phase 3).
+/// Defined in appsettings.json under "DatabaseConnections" (an array), not admin-editable at
+/// runtime — connection strings are operational/deployment config, like ConnectionStrings:
+/// AgentStudio itself, not user data that belongs in the app's own database.</summary>
 public sealed class DatabaseConnectionConfig
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
     public required string Name { get; set; }
     public required string ConnectionString { get; set; }
+    /// <summary>Only "postgres" is implemented today (Npgsql is already a project dependency) —
+    /// this field exists so a future connector type doesn't need a breaking config-shape change.
+    /// Any other value is rejected with a clear error, not silently mishandled.</summary>
+    public string Provider { get; set; } = "postgres";
     /// <summary>When true (default), only single SELECT statements are allowed — a pragmatic
     /// heuristic guard, not a bulletproof one. Opt in to write access per connection, explicitly.</summary>
     public bool ReadOnly { get; set; } = true;
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class ChatMessage
