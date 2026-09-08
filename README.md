@@ -65,6 +65,14 @@ dla wdrożenia.
    - Default model: `llama3.1`
 3. Utwórz agenta na http://localhost:5251 wskazując providera i model.
 
+`ModelProviderConfig.TimeoutSeconds` (domyślnie 120s) ogranicza czas pojedynczego wywołania
+LLM/embeddingu — wpięty w `OpenAIClientOptions.NetworkTimeout` w obu fabrykach klientów. Bez
+tego biblioteka OpenAI SDK ucina połączenie po swoim własnym domyślnym limicie (100s),
+niezależnie od `MaxSteps` czy jakiegokolwiek innego ustawienia w tym projekcie — węzeł `prompt`
+z wolno odpowiadającym modelem dostawał czysty `[error]` po dokładnie 100 sekundach. Pole nie
+jest dziś edytowalne z panelu (`/providers` ma tylko formularz tworzenia) — zmiana wymaga
+edycji bezpośrednio w bazie lub podniesienia domyślnej wartości w kodzie.
+
 ## Workflow
 
 Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `integrator`, `parallel`, `join`, `end`.

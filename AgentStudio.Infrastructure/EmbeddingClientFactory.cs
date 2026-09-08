@@ -10,7 +10,11 @@ public sealed class OpenAiCompatibleEmbeddingClientFactory : IEmbeddingClientFac
 {
     public Application.IEmbeddingClient Create(ModelProviderConfig provider, string modelName)
     {
-        var options = new OpenAIClientOptions { Endpoint = new Uri(provider.BaseUrl.TrimEnd('/') + "/v1") };
+        var options = new OpenAIClientOptions
+        {
+            Endpoint = new Uri(provider.BaseUrl.TrimEnd('/') + "/v1"),
+            NetworkTimeout = TimeSpan.FromSeconds(Math.Clamp(provider.TimeoutSeconds, 1, 600))
+        };
         var credential = new ApiKeyCredential(provider.ApiKey ?? "not-needed");
         var client = new OpenAIClient(credential, options);
         var generator = client.GetEmbeddingClient(modelName).AsIEmbeddingGenerator();
