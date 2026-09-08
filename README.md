@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 105 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 113 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -145,7 +145,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 105 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 113 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -156,7 +156,8 @@ dotnet test
 # formularze (merge formValues do zmiennych, publish/republish kopiuje MaxSteps+FormFields,
 # FormFields getter toleruje niepoprawny/legacy JSON zamiast rzucać), retencja rozmów
 # (purge starych konwersacji, świeże nietknięte), nieobsługiwany provider konektora DB
-# odrzucany czytelnym błędem
+# odrzucany czytelnym błędem, szyfrowanie ApiKey (round-trip, GCM auth-tag chroni przed
+# manipulacją, tolerancja dla wierszy sprzed włączenia szyfrowania)
 ```
 
 ## Wdrożenie (Windows/IIS)
@@ -179,6 +180,10 @@ publiczne** — chroni je wyłącznie `X-Agent-Api-Key`, bez zmian względem faz
 To ochrona per-IP, nie lockout konta — za reverse proxy bez skonfigurowanego zaufania do
 `X-Forwarded-For` limit dzieli się między wszystkich użytkowników za tym proxy (patrz
 DEPLOYMENT.md).
+
+`ModelProviderConfig.ApiKey` szyfrowany w bazie (AES-256-GCM, `SecretProtector` jako EF
+`ValueConverter`) po ustawieniu klucza — `Secrets:EncryptionKey` w configu/env, opcjonalne (bez
+klucza zapis pozostaje plaintext, jak dziś). Szczegóły i generowanie klucza — DEPLOYMENT.md.
 
 ## RAG i dokumenty (faza 2)
 

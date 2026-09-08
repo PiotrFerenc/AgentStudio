@@ -104,6 +104,41 @@ is needed, but the DB user needs DDL rights on first start. The migration is
 If `ConnectionStrings:AgentStudio` is empty or the literal `"InMemory"`, the app falls back to
 EF InMemory (dev mode — data is lost on restart).
 
+### Encrypting provider API keys at rest
+
+`ModelProviderConfig.ApiKey` (the LLM provider's key, entered on `/providers`) is stored
+encrypted (AES-256-GCM) once a key is configured — `SecretProtector` in
+`AgentStudio.Infrastructure`, wired as an EF `ValueConverter`, so nothing outside that one
+converter ever sees ciphertext. Set a 256-bit key, base64-encoded:
+
+```bash
+openssl rand -base64 32
+```
+
+Then either in `appsettings.Production.json`:
+
+```json
+{ "Secrets": { "EncryptionKey": "<base64 key>" } }
+```
+
+or as an environment variable (`__` for the nested key, standard ASP.NET Core config binding):
+
+```bash
+Secrets__EncryptionKey=<base64 key>
+```
+
+**No key configured = no encryption** (dev/CI default, not a silent downgrade — this is the
+same opt-in posture as `ConversationRetention`). Losing the key makes every stored ApiKey
+unrecoverable — back it up like any other production secret, separately from the database dump
+(a DB backup without the key is useless for this column, and vice versa).
+
+Rows written before a key was configured (or before this feature existed) stay plaintext in the
+column — enabling the key encrypts new writes only, it doesn't retroactively re-encrypt existing
+rows. `/providers` has no edit/delete today (create-only), so there's no UI path to force a
+rewrite; migrating an existing provider's key means updating its `ApiKey` column directly in
+Postgres (with the key already configured, so the app-side encryption logic is available if
+scripted through the app rather than raw SQL).
+
 ## 3. IIS site (in-process)
 
 1. Install the ASP.NET Core 10 Hosting Bundle, then `net stop was /y && net start w3svc`.

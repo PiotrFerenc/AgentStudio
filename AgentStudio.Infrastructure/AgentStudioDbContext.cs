@@ -67,11 +67,16 @@ public sealed class AgentStudioDbContext : DbContext
             e.Ignore(v => v.FormFields);
         });
 
+        var apiKeyConverter = new ValueConverter<string?, string?>(
+            v => SecretProtector.Protect(v),
+            v => SecretProtector.Unprotect(v));
+
         modelBuilder.Entity<ModelProviderConfig>(e =>
         {
             e.HasKey(p => p.Id);
             e.HasIndex(p => p.Name).IsUnique();
             e.Property(p => p.Name).HasMaxLength(200).IsRequired();
+            e.Property(p => p.ApiKey).HasConversion(apiKeyConverter);
         });
 
         modelBuilder.Entity<ExecutionLog>(e =>

@@ -78,6 +78,12 @@ Several entity properties follow the same pattern: a `string XyzJson` column plu
 - If the property is a mutable collection that gets edited *in place* on a tracked entity (not replaced wholesale), configure a `JsonValueComparer<T>` for it in `AgentStudioDbContext.OnModelCreating` — EF's default reference-equality change tracking otherwise misses the mutation and silently skips the `UPDATE`.
 - The getter should tolerate a non-array/malformed stored value rather than throwing — an EF-generated migration `defaultValue` can get coerced by Postgres into something that doesn't deserialize as expected (e.g. `defaultValue: ""` on a `jsonb` column became a stored `{}`, not `[]`, and crashed every page load for pre-migration rows until the getter was made defensive).
 
+### Secrets at rest
+
+`ModelProviderConfig.ApiKey` is encrypted (AES-256-GCM) via an EF `ValueConverter` in `AgentStudioDbContext` backed by `SecretProtector` (`AgentStudio.Infrastructure`). The key is process-global config (`Secrets:EncryptionKey`, base64), set once via `SecretProtector.Configure` in `AddAgentStudioInfrastructure` — deliberately a static holder, not a DI-scoped service, because EF caches the model (and its converters) once per process, and a converter that captured a per-request-resolved service would silently keep using whichever scope built the model first. No key configured = no-op (dev/CI default). `Unprotect` tolerates anything that isn't its own ciphertext format (legacy plaintext rows, or rows written before a key existed) and returns it as-is — same defensive-getter lesson as the jsonb columns above. `DatabaseConnectionConfig` (below) deliberately isn't in this system: it moved out of the database entirely into `appsettings.json`, so encrypting it here wouldn't apply.
+
+`DatabaseConnectionConfig` (phase 3, `databaseQuery` node) is bound from the `DatabaseConnections` config array (`appsettings.json`), not a DB table — `IDatabaseConnectionProvider`/`DatabaseConnectionProvider` is a thin synchronous `IOptions<List<...>>` read, no repository/CRUD. `Provider` defaults to `"postgres"` (the only one implemented); any other value is rejected at query time with a clear error rather than mishandled, since the field exists for a future connector type without a config-shape break.
+
 ### Auth and rate limiting
 
 Cookie auth (`Microsoft.AspNetCore.Authentication.Cookies`) with `PasswordHasher<T>`, not full ASP.NET Core Identity. Roles: Admin/Editor. First run with zero accounts redirects `/` → `/login` → `/setup` to bootstrap the first Admin.
