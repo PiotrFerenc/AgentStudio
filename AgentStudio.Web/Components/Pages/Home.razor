@@ -1,0 +1,104 @@
+﻿@page "/"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject AgentStudio.Web.Services.StudioApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Agents</PageTitle>
+
+<div class="panel">
+    <h2>Agents</h2>
+    @if (_agents is null)
+    {
+        <p>Loading...</p>
+    }
+    else if (_agents.Count == 0)
+    {
+        <p>No agents yet. Create the first one below.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Name</th><th>Model</th><th>Versions</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var a in _agents)
+                {
+                    <tr>
+                        <td>@a.Name</td>
+                        <td>@a.ModelProviderName / @a.ModelName</td>
+                        <td>
+                            @foreach (var v in a.Versions.OrderByDescending(v => v.Version))
+                            {
+                                <span class="badge @(v.Status == AgentStudio.Domain.AgentVersionStatus.Published ? "published" : "")">v@v.Version @v.Status</span>
+                            }
+                        </td>
+                        <td>@a.CreatedAt.ToString("yyyy-MM-dd")</td>
+                        <td><a href="/agents/@a.Id">Open</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<div class="panel">
+    <h2>Create Agent</h2>
+    <label>Name</label>
+    <input type="text" @bind="_name" />
+    <label>Description</label>
+    <input type="text" @bind="_description" />
+    <label>System instructions</label>
+    <textarea @bind="_instructions"></textarea>
+    <label>Model provider</label>
+    <select @bind="_providerName">
+        <option value="">-- select --</option>
+        @foreach (var p in _providers ?? new())
+        {
+            <option value="@p.Name">@p.Name (@p.BaseUrl)</option>
+        }
+    </select>
+    <label>Model name</label>
+    <input type="text" @bind="_modelName" placeholder="e.g. llama3.1, qwen2.5" />
+    <br />
+    <button class="primary" @onclick="CreateAsync" disabled="@_creating">Create</button>
+    @if (_createdKey is not null)
+    {
+        <div class="panel" style="background:#fff3bf;margin-top:1rem">
+            <strong>API key (shown once):</strong>
+            <code>@_createdKey</code>
+        </div>
+    }
+</div>
+
+@code {
+    private List<AgentStudio.Domain.Agent>? _agents;
+    private List<AgentStudio.Domain.ModelProviderConfig>? _providers;
+    private string _name = "";
+    private string _description = "";
+    private string _instructions = "";
+    private string _providerName = "";
+    private string _modelName = "";
+    private string? _createdKey;
+    private bool _creating;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _agents = await Api.ListAgentsAsync();
+        _providers = await Api.ListProvidersAsync();
+    }
+
+    private async Task CreateAsync()
+    {
+        _creating = true;
+        try
+        {
+            var (agent, key) = await Api.CreateAgentAsync(_name, _description, _instructions, _providerName, _modelName);
+            _createdKey = key;
+            _agents = await Api.ListAgentsAsync();
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+}

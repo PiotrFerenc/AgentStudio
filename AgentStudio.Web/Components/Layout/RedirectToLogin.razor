@@ -1,0 +1,8 @@
+@inject NavigationManager Nav
+
+@code {
+    // forceLoad: crossing from an unauthenticated interactive circuit to the static /login
+    // page needs a real browser navigation, not a Blazor in-circuit one.
+    protected override void OnInitialized() =>
+        Nav.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Nav.Uri)}", forceLoad: true);
+}

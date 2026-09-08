@@ -1,0 +1,139 @@
+using AgentStudio.Application;
+using AgentStudio.Contracts;
+using AgentStudio.Domain;
+
+namespace AgentStudio.Web.Services;
+
+/// <summary>Client-side facade over application services for Blazor pages.</summary>
+public sealed class StudioApiClient
+{
+    private readonly IAgentRepository _agents;
+    private readonly IProviderRepository _providers;
+    private readonly IExecutionLogRepository _logs;
+    private readonly AgentService _agentService;
+    private readonly IConversationStore _conversations;
+    private readonly WorkflowRunner _runner;
+    private readonly UserService _users;
+    private readonly IDocumentIndexer _documents;
+    private readonly IDatabaseConnectionRepository _databaseConnections;
+    private readonly IAnalyticsRepository _analytics;
+
+    public StudioApiClient(
+        IAgentRepository agents,
+        IProviderRepository providers,
+        IExecutionLogRepository logs,
+        AgentService agentService,
+        IConversationStore conversations,
+        WorkflowRunner runner,
+        UserService users,
+        IDocumentIndexer documents,
+        IDatabaseConnectionRepository databaseConnections,
+        IAnalyticsRepository analytics)
+    {
+        _agents = agents;
+        _providers = providers;
+        _logs = logs;
+        _agentService = agentService;
+        _conversations = conversations;
+        _runner = runner;
+        _users = users;
+        _documents = documents;
+        _databaseConnections = databaseConnections;
+        _analytics = analytics;
+    }
+
+    public Task<AnalyticsSummary> GetAnalyticsAsync(int days = 30, CancellationToken ct = default) =>
+        _analytics.GetSummaryAsync(days, ct);
+
+    public Task<List<User>> ListUsersAsync(CancellationToken ct = default) => _users.ListAsync(ct);
+
+    public Task<User> CreateUserAsync(string username, string password, UserRole role, CancellationToken ct = default) =>
+        _users.CreateAsync(username, password, role, ct);
+
+    public Task ChangeUserRoleAsync(Guid userId, UserRole role, CancellationToken ct = default) =>
+        _users.ChangeRoleAsync(userId, role, ct);
+
+    public Task DeleteUserAsync(Guid userId, CancellationToken ct = default) => _users.DeleteAsync(userId, ct);
+
+    public Task<List<Agent>> ListAgentsAsync(CancellationToken ct = default) => _agents.ListAsync(ct);
+    public Task<Agent?> GetAgentAsync(Guid id, CancellationToken ct = default) => _agents.GetAsync(id, ct);
+
+    public async Task<(Agent Agent, string RawKey)> CreateAgentAsync(string name, string description, string instructions, string providerName, string modelName, CancellationToken ct = default) =>
+        await _agentService.CreateAsync(new CreateAgentRequest(name, description, instructions, providerName, modelName), ct);
+
+    public Task<ValidationResultDto> SaveDraftAsync(Guid agentId, WorkflowGraphDto graph, int? maxSteps = null, CancellationToken ct = default) =>
+        _agentService.UpdateDraftAsync(agentId, graph, maxSteps, ct);
+
+    public Task<AgentVersion> PublishAsync(Guid agentId, CancellationToken ct = default) =>
+        _agentService.PublishAsync(agentId, ct);
+
+    public Task<string> RegenerateApiKeyAsync(Guid agentId, CancellationToken ct = default) =>
+        _agentService.RegenerateApiKeyAsync(agentId, ct);
+
+    public Task<AgentVersion> UnpublishAsync(Guid agentId, int version, CancellationToken ct = default) =>
+        _agentService.UnpublishAsync(agentId, version, ct);
+
+    public Task<AgentVersion> RepublishAsync(Guid agentId, int version, CancellationToken ct = default) =>
+        _agentService.RepublishAsync(agentId, version, ct);
+
+    public Task<List<ModelProviderConfig>> ListProvidersAsync(CancellationToken ct = default) => _providers.ListAsync(ct);
+
+    public async Task AddProviderAsync(string name, string baseUrl, string model, string? apiKey, string? embeddingModel = null, CancellationToken ct = default)
+    {
+        await _providers.AddAsync(new ModelProviderConfig { Name = name, BaseUrl = baseUrl, DefaultModel = model, ApiKey = apiKey, EmbeddingModel = embeddingModel }, ct);
+        await _providers.SaveChangesAsync(ct);
+    }
+
+    public Task<List<ExecutionLog>> ListLogsAsync(Guid agentId, CancellationToken ct = default) =>
+        _logs.ListForAgentAsync(agentId, 50, ct);
+
+    public async Task<(ConversationState Conversation, ModelProviderConfig Provider, AgentVersion Version)?> StartTestChatAsync(Agent agent, string? conversationId, CancellationToken ct = default)
+    {
+        var provider = await _providers.GetByNameAsync(agent.ModelProviderName, ct);
+        var version = agent.Draft ?? agent.Versions.OrderByDescending(v => v.Version).FirstOrDefault();
+        if (provider is null || version is null) return null;
+        var conversation = _conversations.GetOrCreate(conversationId, agent.Id, version.Version);
+        return (conversation, provider, version);
+    }
+
+    public IAsyncEnumerable<string> RunTestChatAsync(Agent agent, AgentVersion version, ModelProviderConfig provider, ConversationState conversation, string message, CancellationToken ct = default)
+    {
+        var stream = _runner.RunAsync(agent, version, provider, conversation, message, ct);
+        return Wrap(stream, conversation);
+    }
+
+    private async IAsyncEnumerable<string> Wrap(IAsyncEnumerable<string> inner, ConversationState conversation)
+    {
+        await foreach (var chunk in inner)
+            yield return chunk;
+        _conversations.Save(conversation);
+    }
+
+    public Task<List<Document>> ListDocumentsAsync(Guid agentId, CancellationToken ct = default) => _documents.ListAsync(agentId, ct);
+
+    public async Task<Document> UploadDocumentAsync(Guid agentId, string fileName, Stream content, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        var provider = await _providers.GetByNameAsync(agent.ModelProviderName, ct)
+            ?? throw new InvalidOperationException($"Provider '{agent.ModelProviderName}' is not configured.");
+        return await _documents.IndexAsync(agentId, fileName, content, provider, ct);
+    }
+
+    public Task DeleteDocumentAsync(Guid documentId, CancellationToken ct = default) => _documents.DeleteAsync(documentId, ct);
+
+    public Task<List<DatabaseConnectionConfig>> ListDatabaseConnectionsAsync(CancellationToken ct = default) =>
+        _databaseConnections.ListAsync(ct);
+
+    public async Task AddDatabaseConnectionAsync(string name, string connectionString, bool readOnly, CancellationToken ct = default)
+    {
+        await _databaseConnections.AddAsync(new DatabaseConnectionConfig { Name = name, ConnectionString = connectionString, ReadOnly = readOnly }, ct);
+        await _databaseConnections.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteDatabaseConnectionAsync(Guid id, CancellationToken ct = default)
+    {
+        var connection = await _databaseConnections.GetAsync(id, ct) ?? throw new KeyNotFoundException("Database connection not found.");
+        await _databaseConnections.DeleteAsync(connection, ct);
+        await _databaseConnections.SaveChangesAsync(ct);
+    }
+}

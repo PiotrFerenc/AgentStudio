@@ -1,0 +1,477 @@
+@using AgentStudio.Contracts
+
+<div class="graph-toolbar">
+    <span>Add:</span>
+    @foreach (var t in NodeTypes)
+    {
+        <button class="graph-add-btn" @onclick="() => AddNode(t)">@t</button>
+    }
+    <button class="graph-add-btn danger" @onclick="DeleteSelected" disabled="@(SelectedNode is null && _selectedEdge is null)">Delete selected</button>
+    <span class="graph-zoom">
+        <button class="graph-add-btn" @onclick="ZoomOut">−</button>
+        <span class="graph-zoom-pct">@((_zoom * 100).ToString("F0"))%</span>
+        <button class="graph-add-btn" @onclick="ZoomIn">+</button>
+        <button class="graph-add-btn" @onclick="ResetView">Reset view</button>
+    </span>
+</div>
+
+<div class="graph-canvas"
+     tabindex="0"
+     @ref="_canvasRef"
+     @onmousedown="OnCanvasMouseDown"
+     @onmousemove="OnMouseMove" @onmouseup="OnMouseUp" @onmouseleave="OnMouseUp"
+     @onwheel="OnWheel" @onwheel:preventDefault
+     @onclick="OnCanvasClick"
+     @onkeydown="OnCanvasKeyDown">
+    <div class="graph-viewport" style="transform:translate(@(_panX)px,@(_panY)px) scale(@_zoom)">
+    <svg style="position:absolute;left:0;top:0;width:4000px;height:4000px;pointer-events:none;overflow:visible">
+        <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                <path d="M0,0 L8,4 L0,8 z" fill="#8b8a92" />
+            </marker>
+        </defs>
+        @foreach (var edge in Graph.Edges)
+        {
+            var (x1, y1, x2, y2) = EdgeCoords(edge);
+            var selected = _selectedEdge?.Id == edge.Id;
+            var color = selected ? "#e03131" : edge.Branch == "true" ? "#2f9e44" : edge.Branch == "false" ? "#e03131" : "#8b8a92";
+            var midX = (x1 + x2) / 2;
+            var midY = (y1 + y2) / 2;
+            <line x1="@x1" y1="@y1" x2="@x2" y2="@y2" stroke="@color" stroke-width="@(selected ? 3 : 1.8)" marker-end="url(#arrow)" />
+            @if (edge.Branch is not null)
+            {
+                @((MarkupString)$"<text x=\"{midX}\" y=\"{midY - 4}\" fill=\"{color}\" font-size=\"10\" font-family=\"JetBrains Mono, monospace\" text-anchor=\"middle\">{edge.Branch}</text>")
+            }
+            <line x1="@x1" y1="@y1" x2="@x2" y2="@y2" stroke="transparent" stroke-width="10"
+                  style="pointer-events:stroke;cursor:pointer"
+                  @onclick="e => OnEdgeClick(e, edge)" @onclick:stopPropagation>
+                <title>Click to select, then "Delete selected" or Delete key (Alt+click deletes immediately)</title>
+            </line>
+        }
+        @if (_linkSource is not null)
+        {
+            var srcW = _linkSource.Type == "start" ? 90.0 : NodeW;
+            <line x1="@(_linkSource.X + srcW)" y1="@(_linkSource.Y + NodeH / 2)" x2="@_mouseX" y2="@_mouseY" stroke="#3b5bdb" stroke-width="1.8" stroke-dasharray="4" />
+        }
+    </svg>
+    @foreach (var node in Graph.Nodes)
+    {
+        <div class="graph-node @node.Type @(SelectedNode?.Id == node.Id ? "selected" : "")"
+             style="left:@(node.X)px;top:@(node.Y)px"
+             @onmousedown="e => OnNodeMouseDown(e, node)"
+             @onmousedown:stopPropagation
+             @onmouseup="e => OnNodeMouseUp(e, node)"
+             @onmouseup:stopPropagation
+             @onclick="() => Select(node)"
+             @onclick:stopPropagation>
+            <div class="node-title">@node.Type</div>
+            <div class="node-label">@node.Label</div>
+            <div class="node-ports">
+                <span class="port in" title="Input"></span>
+                <span class="port out" title="Drag or click to connect"
+                      @onmousedown="e => OnPortMouseDown(e, node)"
+                      @onmousedown:stopPropagation
+                      @onclick:stopPropagation></span>
+            </div>
+        </div>
+    }
+    </div>
+    @if (_linkSource is not null)
+    {
+        <div class="link-hint">Click target node to connect</div>
+        @if (_linkSource.Type == "condition")
+        {
+            <div class="link-branch-picker">
+                <button @onclick='() => _pendingBranch = "true"' class='@(_pendingBranch == "true" ? "active" : "")'>true</button>
+                <button @onclick='() => _pendingBranch = "false"' class='@(_pendingBranch == "false" ? "active" : "")'>false</button>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .graph-toolbar { margin-bottom: .6rem; display: flex; gap: .3rem; align-items: center; flex-wrap: wrap; }
+    .graph-toolbar > span { font-size: .72rem; font-weight: 600; color: var(--ink-3, #8b8a92); margin-right: .25rem; }
+    .graph-add-btn {
+        background: transparent;
+        color: #57565e;
+        border: 1px solid #e5e4e0;
+        padding: .28rem .65rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: .75rem;
+        font-weight: 600;
+        font-family: inherit;
+    }
+    .graph-add-btn:hover { border-color: #3b5bdb; color: #3b5bdb; background: #edf0fd; }
+    .graph-add-btn.danger:hover { border-color: #e03131; color: #e03131; background: #fff5f5; }
+    .graph-zoom { margin-left: auto; display: flex; align-items: center; gap: .3rem; }
+    .graph-zoom-pct { font-size: .72rem; color: #8b8a92; min-width: 3em; text-align: center; }
+    .graph-canvas {
+        position: relative;
+        height: 480px;
+        background-color: #fafaf9;
+        background-image: radial-gradient(circle, #d9d8d4 1px, transparent 1px);
+        background-size: 22px 22px;
+        border: 1px solid #e5e4e0;
+        border-radius: 10px;
+        overflow: hidden;
+        outline: none;
+        cursor: grab;
+    }
+    .graph-viewport {
+        position: absolute;
+        left: 0; top: 0;
+        transform-origin: 0 0;
+    }
+    .graph-node {
+        position: absolute;
+        width: 140px;
+        background: #fff;
+        border: 1.5px solid #cfceca;
+        border-radius: 8px;
+        padding: .4rem .5rem .8rem;
+        cursor: grab;
+        user-select: none;
+        font-size: .78rem;
+        box-shadow: 0 1px 2px rgba(22,22,26,.06);
+    }
+    .graph-node.selected { border-color: #3b5bdb; box-shadow: 0 0 0 3px #edf0fd; }
+    .graph-node.start { border-radius: 999px; padding-left: .9rem; width: auto; min-width: 90px; }
+    .graph-node.end { border-color: #16161a; border-bottom-width: 3px; }
+    .graph-node.condition { border-style: dashed; }
+    .graph-node.parallel, .graph-node.join { border-color: #7048e8; border-width: 2px; }
+    .graph-node.documentSearch { border-color: #0c8599; }
+    .graph-node.subAgent { border-color: #e8590c; }
+    .graph-node.databaseQuery { border-color: #2f9e44; }
+    .node-title {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: .6rem;
+        color: #8b8a92;
+        letter-spacing: .04em;
+    }
+    .node-label { font-weight: 600; color: #16161a; }
+    .node-ports { position: relative; height: 0; }
+    .port {
+        position: absolute;
+        top: -4px;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        border: 2px solid #57565e;
+        background: #fff;
+    }
+    .port.in { left: -11px; }
+    .port.out { right: -11px; cursor: crosshair; }
+    .port.out:hover { border-color: #3b5bdb; background: #3b5bdb; }
+    .link-hint {
+        position: absolute; bottom: 8px; left: 8px;
+        background: #edf0fd; color: #3b5bdb;
+        padding: .3rem .6rem; border-radius: 6px;
+        font-size: .78rem; font-weight: 600;
+    }
+    .link-branch-picker { position: absolute; bottom: 8px; right: 8px; display: flex; gap: .25rem; }
+    .link-branch-picker button {
+        border: 1px solid #e5e4e0; background: #fff;
+        border-radius: 6px; padding: .25rem .6rem;
+        cursor: pointer; font-weight: 600; font-size: .78rem;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .link-branch-picker button.active { background: #16161a; color: #fff; border-color: #16161a; }
+</style>
+
+@code {
+    [Parameter] public WorkflowGraphDto Graph { get; set; } = new();
+    [Parameter] public EventCallback<WorkflowGraphDto> GraphChanged { get; set; }
+
+    public WorkflowNodeDto? SelectedNode { get; private set; }
+    private WorkflowEdgeDto? _selectedEdge;
+
+    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "parallel", "join", "end" };
+    private const double NodeW = 140, NodeH = 56, DragThreshold = 4;
+
+    private ElementReference _canvasRef;
+    private WorkflowNodeDto? _dragging;
+    private WorkflowNodeDto? _pendingDrag;
+    private WorkflowNodeDto? _linkSource;
+    private string? _pendingBranch;
+    private double _dragOriginNodeX, _dragOriginNodeY, _dragStartClientX, _dragStartClientY;
+    private double _mouseX, _mouseY;
+    private int _counter = 100;
+    private bool _canvasMeasured;
+    private double _canvasLeft, _canvasTop;
+
+    private double _zoom = 1;
+    private double _panX, _panY;
+    private bool _panning;
+    private double _panStartClientX, _panStartClientY, _panOriginX, _panOriginY;
+    private const double ZoomMin = 0.4, ZoomMax = 2.5;
+
+    private sealed class DomRect
+    {
+        public double Left { get; set; }
+        public double Top { get; set; }
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || !_canvasMeasured)
+            await MeasureCanvas();
+    }
+
+    private async Task MeasureCanvas()
+    {
+        try
+        {
+            var rect = await JS.InvokeAsync<DomRect>("agentstudioGraph.getRect", _canvasRef);
+            _canvasLeft = rect.Left;
+            _canvasTop = rect.Top;
+            _canvasMeasured = true;
+        }
+        catch { /* JS not ready yet (prerender) — retry on next render */ }
+    }
+
+    private (double, double, double, double) EdgeCoords(WorkflowEdgeDto e)
+    {
+        var s = Graph.Nodes.FirstOrDefault(n => n.Id == e.SourceNodeId);
+        var t = Graph.Nodes.FirstOrDefault(n => n.Id == e.TargetNodeId);
+        if (s is null || t is null) return (0, 0, 0, 0);
+        var srcW = s.Type == "start" ? 90.0 : NodeW;
+        return (s.X + srcW, s.Y + NodeH / 2, t.X, t.Y + NodeH / 2);
+    }
+
+    private double CanvasX(double clientX) => (clientX - _canvasLeft - _panX) / _zoom;
+    private double CanvasY(double clientY) => (clientY - _canvasTop - _panY) / _zoom;
+
+    private async Task OnCanvasMouseDown(MouseEventArgs e)
+    {
+        if (_linkSource is not null) return;
+        await MeasureCanvas(); // the page can scroll between renders — re-measure at gesture start, not just once
+        _panning = true;
+        _panStartClientX = e.ClientX;
+        _panStartClientY = e.ClientY;
+        _panOriginX = _panX;
+        _panOriginY = _panY;
+    }
+
+    private void OnWheel(WheelEventArgs e)
+    {
+        var oldZoom = _zoom;
+        var factor = e.DeltaY < 0 ? 1.1 : 1 / 1.1;
+        var newZoom = Math.Clamp(oldZoom * factor, ZoomMin, ZoomMax);
+        if (newZoom == oldZoom) return;
+
+        // Keep the graph point under the cursor fixed while zooming.
+        var gx = (e.ClientX - _canvasLeft - _panX) / oldZoom;
+        var gy = (e.ClientY - _canvasTop - _panY) / oldZoom;
+        _panX = e.ClientX - _canvasLeft - gx * newZoom;
+        _panY = e.ClientY - _canvasTop - gy * newZoom;
+        _zoom = newZoom;
+    }
+
+    private void ZoomIn() => _zoom = Math.Clamp(_zoom * 1.2, ZoomMin, ZoomMax);
+    private void ZoomOut() => _zoom = Math.Clamp(_zoom / 1.2, ZoomMin, ZoomMax);
+    private void ResetView() { _zoom = 1; _panX = 0; _panY = 0; }
+
+    private void Select(WorkflowNodeDto node)
+    {
+        if (_linkSource is not null && _linkSource.Id != node.Id)
+        {
+            var branch = _linkSource.Type == "condition" ? (_pendingBranch ?? "true") : null;
+            // A parallel split's whole point is multiple unconditional edges from one source —
+            // append instead of replacing. Every other node type keeps at most one edge per
+            // source+branch, so linking again replaces the old target rather than duplicating.
+            if (_linkSource.Type != "parallel")
+                Graph.Edges.RemoveAll(e => e.SourceNodeId == _linkSource.Id && e.Branch == branch);
+            Graph.Edges.Add(new WorkflowEdgeDto
+            {
+                Id = $"e{++_counter}",
+                SourceNodeId = _linkSource.Id,
+                TargetNodeId = node.Id,
+                Branch = branch
+            });
+            _linkSource = null;
+            _pendingBranch = null;
+            Notify();
+            return;
+        }
+        if (_linkSource?.Id == node.Id)
+        {
+            // Clicking the source again cancels linking.
+            _linkSource = null;
+            _pendingBranch = null;
+            Notify();
+            return;
+        }
+        SelectedNode = node;
+        _selectedEdge = null;
+        Notify();
+    }
+
+    private async Task OnNodeMouseDown(MouseEventArgs e, WorkflowNodeDto node)
+    {
+        if (_linkSource is not null)
+            return; // In link mode a click on a node connects, never drags.
+
+        await MeasureCanvas(); // re-measure at gesture start — page may have scrolled since last render
+        _pendingDrag = node;
+        _dragOriginNodeX = node.X;
+        _dragOriginNodeY = node.Y;
+        _dragStartClientX = e.ClientX;
+        _dragStartClientY = e.ClientY;
+    }
+
+    private async Task OnPortMouseDown(MouseEventArgs e, WorkflowNodeDto node)
+    {
+        await MeasureCanvas(); // re-measure at gesture start — page may have scrolled since last render
+        _linkSource = node;
+        _pendingBranch = node.Type == "condition" ? "true" : null;
+        _pendingDrag = null;
+        _dragging = null;
+        _mouseX = node.X + NodeW;
+        _mouseY = node.Y + NodeH / 2;
+        Notify(); // re-render so the pending-link line and hint appear immediately
+    }
+
+    private void OnMouseMove(MouseEventArgs e)
+    {
+        _mouseX = CanvasX(e.ClientX);
+        _mouseY = CanvasY(e.ClientY);
+
+        if (_panning)
+        {
+            _panX = _panOriginX + (e.ClientX - _panStartClientX);
+            _panY = _panOriginY + (e.ClientY - _panStartClientY);
+            return;
+        }
+
+        if (_pendingDrag is not null && _dragging is null)
+        {
+            var dx = e.ClientX - _dragStartClientX;
+            var dy = e.ClientY - _dragStartClientY;
+            if (Math.Sqrt(dx * dx + dy * dy) >= DragThreshold)
+                _dragging = _pendingDrag;
+        }
+
+        if (_dragging is not null)
+        {
+            _dragging.X = Math.Max(0, _dragOriginNodeX + (e.ClientX - _dragStartClientX) / _zoom);
+            _dragging.Y = Math.Max(0, _dragOriginNodeY + (e.ClientY - _dragStartClientY) / _zoom);
+        }
+    }
+
+    private void OnMouseUp(MouseEventArgs e)
+    {
+        if (_dragging is not null)
+            Notify();
+        _dragging = null;
+        _pendingDrag = null;
+        _panning = false;
+    }
+
+    private void OnNodeMouseUp(MouseEventArgs e, WorkflowNodeDto node)
+    {
+        // Drag-to-connect: releasing the mouse over a node while linking completes the edge.
+        if (_linkSource is not null && _linkSource.Id != node.Id)
+        {
+            Select(node);
+            return;
+        }
+        if (_dragging is not null)
+            Notify();
+        _dragging = null;
+        _pendingDrag = null;
+    }
+
+    private void OnCanvasClick(MouseEventArgs e)
+    {
+        if (_linkSource is not null)
+        {
+            _linkSource = null;
+            _pendingBranch = null;
+            Notify();
+            return;
+        }
+        if (SelectedNode is not null || _selectedEdge is not null)
+        {
+            SelectedNode = null;
+            _selectedEdge = null;
+            Notify();
+        }
+    }
+
+    private void OnCanvasKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _linkSource is not null)
+        {
+            _linkSource = null;
+            _pendingBranch = null;
+            Notify();
+            return;
+        }
+        if (e.Key is "Delete" or "Backspace" && (SelectedNode is not null || _selectedEdge is not null))
+            DeleteSelected();
+    }
+
+    private void OnEdgeClick(MouseEventArgs e, WorkflowEdgeDto edge)
+    {
+        if (e.AltKey)
+        {
+            Graph.Edges.RemoveAll(x => x.Id == edge.Id);
+            if (_selectedEdge?.Id == edge.Id) _selectedEdge = null;
+            Notify();
+            return;
+        }
+        _selectedEdge = edge;
+        SelectedNode = null;
+        Notify();
+    }
+
+    private void AddNode(string type)
+    {
+        var id = $"{type}{++_counter}";
+        var node = new WorkflowNodeDto
+        {
+            Id = id,
+            Type = type,
+            Label = type,
+            X = 60 + Graph.Nodes.Count * 30,
+            Y = 60 + Graph.Nodes.Count * 30
+        };
+        switch (type)
+        {
+            case "prompt": node.Props["promptTemplate"] = ""; node.Props["resultVariable"] = "llmResult"; break;
+            case "message": node.Props["text"] = ""; break;
+            case "condition": node.Props["left"] = "variables.status"; node.Props["operator"] = "Equals"; node.Props["right"] = ""; break;
+            case "http": node.Props["method"] = "GET"; node.Props["url"] = ""; node.Props["resultVariable"] = "httpResult"; node.Props["timeoutSeconds"] = 30; node.Props["retries"] = 0; break;
+            case "variable": node.Props["name"] = "myVar"; node.Props["value"] = ""; break;
+            case "documentSearch": node.Props["query"] = "{input}"; node.Props["topK"] = 3; node.Props["resultVariable"] = "searchResult"; break;
+            case "subAgent": node.Props["targetAgentId"] = ""; node.Props["inputTemplate"] = "{input}"; node.Props["resultVariable"] = "subAgentResult"; break;
+            case "databaseQuery": node.Props["connectionName"] = ""; node.Props["query"] = ""; node.Props["timeoutSeconds"] = 30; node.Props["resultVariable"] = "dbResult"; break;
+            case "end": node.Props["outputTemplate"] = ""; break;
+        }
+        Graph.Nodes.Add(node);
+        SelectedNode = node;
+        _selectedEdge = null;
+        Notify();
+    }
+
+    private void DeleteSelected()
+    {
+        if (_selectedEdge is not null)
+        {
+            Graph.Edges.RemoveAll(e => e.Id == _selectedEdge.Id);
+            _selectedEdge = null;
+            Notify();
+            return;
+        }
+        if (SelectedNode is null || SelectedNode.Type == "start") return;
+        Graph.Nodes.RemoveAll(n => n.Id == SelectedNode.Id);
+        Graph.Edges.RemoveAll(e => e.SourceNodeId == SelectedNode.Id || e.TargetNodeId == SelectedNode.Id);
+        SelectedNode = null;
+        Notify();
+    }
+
+    private void Notify() => GraphChanged.InvokeAsync(Graph);
+}

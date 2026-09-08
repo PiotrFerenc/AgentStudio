@@ -1,0 +1,208 @@
+@using AgentStudio.Contracts
+
+@if (Node is null)
+{
+    <p style="color:#868e96">Select a node to edit its properties.</p>
+}
+else
+{
+    <h3>@Node.Type (@Node.Id)</h3>
+    <label>Label</label>
+    <input type="text" @bind="Node.Label" @bind:event="oninput" @bind:after="Changed" />
+
+    @switch (Node.Type)
+    {
+        case "prompt":
+            <label>Prompt template (use {input}, {variables.name})</label>
+            <textarea @bind="PromptTemplate" @bind:event="oninput" @bind:after="Changed"></textarea>
+            <label>Result variable</label>
+            <input type="text" @bind="ResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            break;
+        case "message":
+            <label>Message text</label>
+            <textarea @bind="MessageText" @bind:event="oninput" @bind:after="Changed"></textarea>
+            break;
+        case "condition":
+            <label>Left (e.g. variables.status or input)</label>
+            <input type="text" @bind="CondLeft" @bind:event="oninput" @bind:after="Changed" />
+            <label>Operator</label>
+            <select @bind="CondOperator" @bind:after="Changed">
+                @foreach (var op in Operators)
+                {
+                    <option value="@op">@op</option>
+                }
+            </select>
+            <label>Right (literal or variables.x)</label>
+            <input type="text" @bind="CondRight" @bind:event="oninput" @bind:after="Changed" />
+            break;
+        case "http":
+            <label>Method</label>
+            <select @bind="HttpMethod" @bind:after="Changed">
+                @foreach (var m in Methods)
+                {
+                    <option value="@m">@m</option>
+                }
+            </select>
+            <label>URL</label>
+            <input type="text" @bind="HttpUrl" @bind:event="oninput" @bind:after="Changed" />
+            <label>JSON body (optional)</label>
+            <textarea @bind="HttpBody" @bind:event="oninput" @bind:after="Changed"></textarea>
+            <label>Timeout (seconds)</label>
+            <input type="text" @bind="HttpTimeout" @bind:event="oninput" @bind:after="Changed" />
+            <label>Retries</label>
+            <input type="text" @bind="HttpRetries" @bind:event="oninput" @bind:after="Changed" />
+            <label>Result variable</label>
+            <input type="text" @bind="HttpResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            break;
+        case "variable":
+            <label>Variable name</label>
+            <input type="text" @bind="VarName" @bind:event="oninput" @bind:after="Changed" />
+            <label>Value</label>
+            <input type="text" @bind="VarValue" @bind:event="oninput" @bind:after="Changed" />
+            break;
+        case "documentSearch":
+            <label>Query (use {input}, {variables.name})</label>
+            <input type="text" @bind="SearchQuery" @bind:event="oninput" @bind:after="Changed" />
+            <label>Top K (number of chunks)</label>
+            <input type="text" @bind="SearchTopK" @bind:event="oninput" @bind:after="Changed" />
+            <label>Result variable</label>
+            <input type="text" @bind="SearchResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Searches this agent's uploaded documents (Documents tab). Requires the agent's provider to have an embedding model configured (Providers page).</p>
+            break;
+        case "subAgent":
+            <label>Target agent</label>
+            <select @bind="SubAgentTargetId" @bind:after="Changed">
+                <option value="">-- select --</option>
+                @foreach (var a in AvailableAgents ?? new())
+                {
+                    <option value="@a.Id">@a.Name</option>
+                }
+            </select>
+            <label>Input (use {input}, {variables.name})</label>
+            <input type="text" @bind="SubAgentInputTemplate" @bind:event="oninput" @bind:after="Changed" />
+            <label>Result variable</label>
+            <input type="text" @bind="SubAgentResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Calls the target agent's published version as a one-shot step — its own conversation, not shared with this one. Needs at least one published version.</p>
+            break;
+        case "databaseQuery":
+            <label>Connection</label>
+            <select @bind="DbConnectionName" @bind:after="Changed">
+                <option value="">-- select --</option>
+                @foreach (var c in AvailableConnections ?? new())
+                {
+                    <option value="@c.Name">@c.Name @(c.ReadOnly ? "" : "(write)")</option>
+                }
+            </select>
+            <label>SQL query (@@name placeholders — never {variables.x} directly, that's SQL injection)</label>
+            <textarea @bind="DbQuery" @bind:event="oninput" @bind:after="Changed"></textarea>
+            <label>Parameters (one per line: name=value, value supports {input}/{variables.x})</label>
+            <textarea @bind="DbParametersText" @bind:event="oninput" @bind:after="Changed" placeholder="status=variables.status"></textarea>
+            <label>Timeout (seconds)</label>
+            <input type="text" @bind="DbTimeout" @bind:event="oninput" @bind:after="Changed" />
+            <label>Result variable</label>
+            <input type="text" @bind="DbResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Result is a JSON array of rows, written to the variable. Read-only connections only allow a single SELECT.</p>
+            break;
+        case "end":
+            <label>Output template (optional)</label>
+            <textarea @bind="EndOutput" @bind:event="oninput" @bind:after="Changed"></textarea>
+            break;
+        case "start":
+            <p>Entry point of the workflow.</p>
+            break;
+        case "parallel":
+            <p>Fan-out: link this node to 2+ targets (drag from its port, one connection at a time). All branches run concurrently and must reconverge at a single Join node.</p>
+            break;
+        case "join":
+            <p>Fan-in: where a parallel split's branches reconverge. Link the split's branches here; continue the workflow from this node's own outgoing edge.</p>
+            break;
+    }
+}
+
+@code {
+    [Parameter] public WorkflowNodeDto? SelectedNode { get; set; }
+    [Parameter] public EventCallback<WorkflowNodeDto> NodeChanged { get; set; }
+    [Parameter] public List<AgentStudio.Domain.Agent>? AvailableAgents { get; set; }
+    [Parameter] public List<AgentStudio.Domain.DatabaseConnectionConfig>? AvailableConnections { get; set; }
+
+    private WorkflowNodeDto? Node => SelectedNode;
+
+    private static readonly string[] Operators = { "Equals", "NotEquals", "Contains", "StartsWith", "EndsWith", "GreaterThan", "LessThan", "GreaterOrEqual", "LessOrEqual" };
+    private static readonly string[] Methods = { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" };
+
+    private string Get(string key, string fallback = "") =>
+        Node is not null && Node.Props.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? fallback : fallback;
+
+    private void Put(string key, string value)
+    {
+        if (Node is not null) Node.Props[key] = value;
+    }
+
+    private string PromptTemplate { get => Get("promptTemplate"); set => Put("promptTemplate", value); }
+    private string ResultVariable { get => Get("resultVariable", "llmResult"); set => Put("resultVariable", value); }
+    private string MessageText { get => Get("text"); set => Put("text", value); }
+    private string CondLeft { get => Get("left"); set => Put("left", value); }
+    private string CondOperator { get => Get("operator", "Equals"); set => Put("operator", value); }
+    private string CondRight { get => Get("right"); set => Put("right", value); }
+    private string HttpMethod { get => Get("method", "GET"); set => Put("method", value); }
+    private string HttpUrl { get => Get("url"); set => Put("url", value); }
+    private string HttpBody { get => Get("body"); set => Put("body", value); }
+    private string HttpTimeout { get => Get("timeoutSeconds", "30"); set => Put("timeoutSeconds", value); }
+    private string HttpRetries { get => Get("retries", "0"); set => Put("retries", value); }
+    private string HttpResultVariable { get => Get("resultVariable", "httpResult"); set => Put("resultVariable", value); }
+    private string VarName { get => Get("name"); set => Put("name", value); }
+    private string VarValue { get => Get("value"); set => Put("value", value); }
+    private string EndOutput { get => Get("outputTemplate"); set => Put("outputTemplate", value); }
+    private string SearchQuery { get => Get("query", "{input}"); set => Put("query", value); }
+    private string SearchTopK { get => Get("topK", "3"); set => Put("topK", value); }
+    private string SearchResultVariable { get => Get("resultVariable", "searchResult"); set => Put("resultVariable", value); }
+    private string SubAgentTargetId { get => Get("targetAgentId"); set => Put("targetAgentId", value); }
+    private string SubAgentInputTemplate { get => Get("inputTemplate", "{input}"); set => Put("inputTemplate", value); }
+    private string SubAgentResultVariable { get => Get("resultVariable", "subAgentResult"); set => Put("resultVariable", value); }
+    private string DbConnectionName { get => Get("connectionName"); set => Put("connectionName", value); }
+    private string DbQuery { get => Get("query"); set => Put("query", value); }
+    private string DbTimeout { get => Get("timeoutSeconds", "30"); set => Put("timeoutSeconds", value); }
+    private string DbResultVariable { get => Get("resultVariable", "dbResult"); set => Put("resultVariable", value); }
+
+    private string DbParametersText
+    {
+        get => string.Join("\n", GetDict("parameters").Select(kv => $"{kv.Key}={kv.Value}"));
+        set
+        {
+            var dict = new Dictionary<string, string>();
+            foreach (var line in value.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                var idx = trimmed.IndexOf('=');
+                if (idx > 0) dict[trimmed[..idx].Trim()] = trimmed[(idx + 1)..].Trim();
+            }
+            PutDict("parameters", dict);
+        }
+    }
+
+    private Dictionary<string, string> GetDict(string key)
+    {
+        if (Node is null || !Node.Props.TryGetValue(key, out var v) || v is null) return new();
+        if (v is Dictionary<string, string> d) return d;
+        if (v is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            var result = new Dictionary<string, string>();
+            foreach (var p in je.EnumerateObject())
+                result[p.Name] = p.Value.ToString();
+            return result;
+        }
+        return new();
+    }
+
+    private void PutDict(string key, Dictionary<string, string> value)
+    {
+        if (Node is not null) Node.Props[key] = value;
+    }
+
+    private void Changed()
+    {
+        if (Node is not null)
+            NodeChanged.InvokeAsync(Node);
+    }
+}

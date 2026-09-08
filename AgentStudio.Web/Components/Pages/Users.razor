@@ -1,0 +1,133 @@
+@page "/users"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@inject AgentStudio.Web.Services.StudioApiClient Api
+@using AgentStudio.Domain
+
+<PageTitle>Users</PageTitle>
+
+<div class="panel">
+    <h2>Users</h2>
+    @if (_users is null)
+    {
+        <p>Loading...</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var u in _users)
+                {
+                    <tr>
+                        <td>@u.Username</td>
+                        <td>
+                            <select @bind="RoleFor[u.Id]" @bind:after="() => ChangeRoleAsync(u.Id)">
+                                @foreach (var r in Roles)
+                                {
+                                    <option value="@r">@r</option>
+                                }
+                            </select>
+                        </td>
+                        <td>@u.CreatedAt.ToString("yyyy-MM-dd")</td>
+                        <td><button class="secondary" @onclick="() => DeleteAsync(u.Id)">Delete</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    @if (_error is not null)
+    {
+        <p class="error-list">@_error</p>
+    }
+</div>
+
+<div class="panel">
+    <h2>Add User</h2>
+    <label>Username</label>
+    <input type="text" @bind="_newUsername" />
+    <label>Password</label>
+    <input type="password" @bind="_newPassword" />
+    <label>Role</label>
+    <select @bind="_newRole">
+        @foreach (var r in Roles)
+        {
+            <option value="@r">@r</option>
+        }
+    </select>
+    <br />
+    <button class="primary" @onclick="CreateAsync" disabled="@_creating">Create</button>
+</div>
+
+@code {
+    private static readonly UserRole[] Roles = { UserRole.Admin, UserRole.Editor };
+
+    private List<User>? _users;
+    private Dictionary<Guid, UserRole> RoleFor { get; } = new();
+    private string _newUsername = "";
+    private string _newPassword = "";
+    private UserRole _newRole = UserRole.Editor;
+    private bool _creating;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _users = await Api.ListUsersAsync();
+        RoleFor.Clear();
+        foreach (var u in _users)
+            RoleFor[u.Id] = u.Role;
+    }
+
+    private async Task CreateAsync()
+    {
+        _creating = true;
+        _error = null;
+        try
+        {
+            await Api.CreateUserAsync(_newUsername, _newPassword, _newRole);
+            _newUsername = "";
+            _newPassword = "";
+            _newRole = UserRole.Editor;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private async Task ChangeRoleAsync(Guid userId)
+    {
+        _error = null;
+        try
+        {
+            await Api.ChangeUserRoleAsync(userId, RoleFor[userId]);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(Guid userId)
+    {
+        _error = null;
+        try
+        {
+            await Api.DeleteUserAsync(userId);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

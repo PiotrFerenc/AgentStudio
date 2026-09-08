@@ -1,0 +1,45 @@
+@page "/setup"
+@layout AgentStudio.Web.Components.Layout.ChatLayout
+@inject AgentStudio.Application.UserService Users
+@inject NavigationManager Nav
+@using Microsoft.AspNetCore.WebUtilities
+
+<PageTitle>First-time setup</PageTitle>
+
+<div class="chat-key-gate">
+    <div class="chat-key-box">
+        @if (_alreadySetUp)
+        {
+            <h2>Already set up</h2>
+            <p>An admin account already exists. <a href="/login">Sign in</a> instead.</p>
+        }
+        else
+        {
+            <h2>Create the admin account</h2>
+            <p>No accounts exist yet — this one-time setup creates the first Admin.</p>
+            <form method="post" action="/auth/setup">
+                <input type="text" name="username" placeholder="Username" autofocus required />
+                <input type="password" name="password" placeholder="Password" minlength="8" required />
+                <button type="submit">Create admin account</button>
+            </form>
+            @if (_error)
+            {
+                <p class="chat-key-error">Username and password (min 8 characters) are required.</p>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private bool _alreadySetUp;
+    private bool _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _alreadySetUp = await Users.AnyUsersAsync();
+
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        _error = query.ContainsKey("error");
+    }
+}

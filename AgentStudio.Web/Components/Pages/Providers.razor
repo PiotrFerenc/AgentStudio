@@ -1,0 +1,62 @@
+@page "/providers"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject AgentStudio.Web.Services.StudioApiClient Api
+
+<PageTitle>Model Providers</PageTitle>
+
+<div class="panel">
+    <h2>Model Providers (OpenAI-compatible)</h2>
+    <table>
+        <thead><tr><th>Name</th><th>Base URL</th><th>Default model</th><th>Embedding model</th><th>API key</th></tr></thead>
+        <tbody>
+            @foreach (var p in _providers ?? new())
+            {
+                <tr>
+                    <td>@p.Name</td>
+                    <td>@p.BaseUrl</td>
+                    <td>@p.DefaultModel</td>
+                    <td>@(p.EmbeddingModel ?? "—")</td>
+                    <td>@(p.ApiKey is null ? "—" : "set")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<div class="panel">
+    <h2>Add Provider</h2>
+    <label>Name</label>
+    <input type="text" @bind="_name" placeholder="e.g. ollama-local" />
+    <label>Base URL</label>
+    <input type="text" @bind="_baseUrl" placeholder="e.g. http://localhost:11434" />
+    <label>Default model</label>
+    <input type="text" @bind="_model" placeholder="e.g. llama3.1" />
+    <label>Embedding model (optional — needed only for RAG / Document Search nodes)</label>
+    <input type="text" @bind="_embeddingModel" placeholder="e.g. nomic-embed-text" />
+    <label>API key (optional)</label>
+    <input type="text" @bind="_apiKey" />
+    <br />
+    <button class="primary" @onclick="AddAsync">Add</button>
+</div>
+
+@code {
+    private List<AgentStudio.Domain.ModelProviderConfig>? _providers;
+    private string _name = "";
+    private string _baseUrl = "";
+    private string _model = "";
+    private string? _embeddingModel;
+    private string? _apiKey;
+
+    protected override async Task OnInitializedAsync() => _providers = await Api.ListProvidersAsync();
+
+    private async Task AddAsync()
+    {
+        await Api.AddProviderAsync(_name, _baseUrl, _model, string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey,
+            string.IsNullOrWhiteSpace(_embeddingModel) ? null : _embeddingModel);
+        _providers = await Api.ListProvidersAsync();
+        _name = _baseUrl = _model = "";
+        _embeddingModel = null;
+        _apiKey = null;
+    }
+}

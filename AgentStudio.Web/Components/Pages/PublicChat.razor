@@ -1,0 +1,185 @@
+@page "/chat/{AgentId:guid}/{Version:int}"
+@layout AgentStudio.Web.Components.Layout.ChatLayout
+@rendermode InteractiveServer
+@inject AgentStudio.Application.IAgentRepository Agents
+@inject AgentStudio.Application.IProviderRepository Providers
+@inject AgentStudio.Application.IConversationStore Conversations
+@inject AgentStudio.Application.AgentService AgentService
+@inject AgentStudio.Application.WorkflowRunner Runner
+@using AgentStudio.Domain
+
+@if (_notFound)
+{
+    <div class="chat-error">
+        <h2>Agent not available</h2>
+        <p>@_errorMessage</p>
+    </div>
+}
+else if (_needsKey)
+{
+    <div class="chat-key-gate">
+        <div class="chat-key-box">
+            <h2>@(_agent?.Name ?? "Agent")</h2>
+            <p>This chat requires an access key.</p>
+            <input type="password" @bind="_keyInput" @bind:event="oninput" placeholder="Access key" @onkeydown="OnKeyDown" />
+            <button @onclick="SubmitKey">Enter</button>
+            @if (_keyError)
+            {
+                <p class="chat-key-error">Invalid key. Try again.</p>
+            }
+        </div>
+    </div>
+}
+else if (_agent is not null)
+{
+    <div class="chat-page">
+        <header class="chat-header">
+            <strong>@_agent.Name</strong>
+            <span class="chat-header-sub">v@Version · powered by AgentStudio</span>
+        </header>
+        <div class="chat-messages">
+            @if (_messages.Count == 0 && _streaming.Length == 0)
+            {
+                <div class="chat-empty">
+                    @if (!string.IsNullOrWhiteSpace(_agent.Description))
+                    {
+                        <p>@_agent.Description</p>
+                    }
+                    else
+                    {
+                        <p>Start the conversation below.</p>
+                    }
+                </div>
+            }
+            @foreach (var m in _messages)
+            {
+                <div class="chat-bubble-row @m.Role">
+                    <div class="chat-bubble @m.Role">@m.Content</div>
+                </div>
+            }
+            @if (_streaming.Length > 0 || _sending)
+            {
+                <div class="chat-bubble-row assistant">
+                    <div class="chat-bubble assistant">@(_streaming.Length > 0 ? _streaming : "…")</div>
+                </div>
+            }
+        </div>
+        <div class="chat-input-row">
+            <input type="text" @bind="_input" @bind:event="oninput" placeholder="Type a message..."
+                   @onkeydown="OnChatKeyDown" disabled="@_sending" />
+            <button @onclick="SendAsync" disabled="@(_sending || string.IsNullOrWhiteSpace(_input))">Send</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid AgentId { get; set; }
+    [Parameter] public int Version { get; set; }
+    [SupplyParameterFromQuery(Name = "key")] public string? QueryKey { get; set; }
+
+    private Agent? _agent;
+    private AgentVersion? _version;
+    private ModelProviderConfig? _provider;
+
+    private bool _notFound;
+    private string _errorMessage = "";
+    private bool _needsKey = true;
+    private bool _keyError;
+    private string _keyInput = "";
+    private string? _apiKey;
+
+    private string? _conversationId;
+    private readonly List<(string Role, string Content)> _messages = new();
+    private string _input = "";
+    private string _streaming = "";
+    private bool _sending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _agent = await Agents.GetAsync(AgentId);
+        if (_agent is null)
+        {
+            _notFound = true;
+            _errorMessage = "This agent does not exist.";
+            return;
+        }
+
+        _version = _agent.Versions.FirstOrDefault(v => v.Version == Version && v.Status == AgentVersionStatus.Published);
+        if (_version is null)
+        {
+            _notFound = true;
+            _errorMessage = $"Version {Version} is not published.";
+            return;
+        }
+
+        _provider = await Providers.GetByNameAsync(_agent.ModelProviderName);
+
+        if (!string.IsNullOrWhiteSpace(QueryKey))
+            await TryKeyAsync(QueryKey);
+    }
+
+    private async Task SubmitKey() => await TryKeyAsync(_keyInput);
+
+    private async Task TryKeyAsync(string? key)
+    {
+        if (_agent is not null && AgentService.VerifyApiKey(_agent, key))
+        {
+            _apiKey = key;
+            _needsKey = false;
+            _keyError = false;
+        }
+        else
+        {
+            _keyError = true;
+        }
+        await Task.CompletedTask;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SubmitKey();
+    }
+
+    private async Task OnChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_sending && !string.IsNullOrWhiteSpace(_input))
+            await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        if (_agent is null || _version is null || _provider is null || string.IsNullOrWhiteSpace(_input))
+            return;
+
+        _sending = true;
+        var message = _input;
+        _input = "";
+        _messages.Add(("user", message));
+        _streaming = "";
+
+        try
+        {
+            var conversation = Conversations.GetOrCreate(_conversationId, _agent.Id, _version.Version);
+            _conversationId = conversation.ConversationId;
+
+            await foreach (var chunk in Runner.RunAsync(_agent, _version, _provider, conversation, message))
+            {
+                _streaming += chunk;
+                StateHasChanged();
+            }
+
+            Conversations.Save(conversation);
+            if (_streaming.Length > 0)
+                _messages.Add(("assistant", _streaming));
+            _streaming = "";
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(("assistant", $"[error] {ex.Message}"));
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

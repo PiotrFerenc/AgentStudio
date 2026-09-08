@@ -1,0 +1,114 @@
+@page "/analytics"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject AgentStudio.Web.Services.StudioApiClient Api
+@using AgentStudio.Application
+
+<PageTitle>Analytics</PageTitle>
+
+<div class="panel">
+    <h2>Analytics</h2>
+    <p style="color:#868e96;font-size:.85rem">Aggregated from execution history, last @_days days.</p>
+</div>
+
+@if (_summary is null)
+{
+    <div class="panel"><p>Loading...</p></div>
+}
+else
+{
+    <div class="analytics-tiles">
+        <div class="analytics-tile">
+            <span class="analytics-tile-value">@_summary.TotalExecutions</span>
+            <span class="analytics-tile-label">Executions</span>
+        </div>
+        <div class="analytics-tile">
+            <span class="analytics-tile-value">@ErrorRatePercent</span>
+            <span class="analytics-tile-label">Error rate</span>
+        </div>
+        <div class="analytics-tile">
+            <span class="analytics-tile-value">@_summary.ActiveAgents</span>
+            <span class="analytics-tile-label">Active agents</span>
+        </div>
+        <div class="analytics-tile">
+            <span class="analytics-tile-value">@(_summary.AvgDurationSeconds.ToString("0.0"))s</span>
+            <span class="analytics-tile-label">Avg duration</span>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Executions per day</h3>
+        @if (_summary.ByDay.Count == 0)
+        {
+            <p style="color:#868e96;font-size:.85rem">No executions in this window.</p>
+        }
+        else
+        {
+            var maxDay = _summary.ByDay.Max(d => d.Executions);
+            <svg width="100%" height="140" viewBox="0 0 @(_summary.ByDay.Count * 24) 140" preserveAspectRatio="none">
+                @for (var i = 0; i < _summary.ByDay.Count; i++)
+                {
+                    var d = _summary.ByDay[i];
+                    var h = maxDay == 0 ? 0 : (double)d.Executions / maxDay * 110;
+                    <g>
+                        <rect x="@(i * 24 + 4)" y="@(120 - h)" width="16" height="@h" rx="2" fill="var(--accent)">
+                            <title>@d.Date.ToString("yyyy-MM-dd"): @d.Executions</title>
+                        </rect>
+                    </g>
+                }
+            </svg>
+        }
+    </div>
+
+    <div class="panel">
+        <h3>Executions per agent</h3>
+        @if (_summary.ByAgent.Count == 0)
+        {
+            <p style="color:#868e96;font-size:.85rem">No executions in this window.</p>
+        }
+        else
+        {
+            var maxAgent = _summary.ByAgent.Max(a => a.Executions);
+            <table>
+                <thead><tr><th>Agent</th><th>Executions</th><th>Failed</th><th>Avg duration</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var a in _summary.ByAgent)
+                    {
+                        var w = maxAgent == 0 ? 0 : (double)a.Executions / maxAgent * 100;
+                        <tr>
+                            <td>@a.AgentName</td>
+                            <td>@a.Executions</td>
+                            <td>@a.Failed</td>
+                            <td>@(a.AvgDurationSeconds.ToString("0.0"))s</td>
+                            <td style="width:120px">
+                                <svg width="100" height="10"><rect width="@w" height="10" rx="2" fill="var(--accent)" /></svg>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+<style>
+    .analytics-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .9rem; margin-bottom: 1.25rem; }
+    .analytics-tile {
+        background: var(--paper); border: 1px solid var(--hairline); border-radius: 10px;
+        padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: .2rem;
+    }
+    .analytics-tile-value { font-size: 1.6rem; font-weight: 700; color: var(--ink); }
+    .analytics-tile-label { font-size: .72rem; color: var(--ink-3); font-weight: 600; letter-spacing: .02em; }
+</style>
+
+@code {
+    private AnalyticsSummary? _summary;
+    private readonly int _days = 30;
+
+    private string ErrorRatePercent =>
+        _summary is null || _summary.TotalExecutions == 0
+            ? "0%"
+            : $"{(double)_summary.FailedExecutions / _summary.TotalExecutions * 100:0.0}%";
+
+    protected override async Task OnInitializedAsync() => _summary = await Api.GetAnalyticsAsync(_days);
+}

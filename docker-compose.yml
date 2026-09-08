@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: agentstudio
+      POSTGRES_USER: agentstudio
+      POSTGRES_PASSWORD: agentstudio
+    ports:
+      # Host 5433 → container 5432: host 5432 is commonly already taken by another
+      # project's Postgres. Match this in ConnectionStrings:AgentStudio if you change it.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  ollama:

@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="AgentStudio.Application/AgentStudio.Application.csproj" />
+  <Project Path="AgentStudio.Contracts/AgentStudio.Contracts.csproj" />
+  <Project Path="AgentStudio.Domain/AgentStudio.Domain.csproj" />
+  <Project Path="AgentStudio.Infrastructure/AgentStudio.Infrastructure.csproj" />
+  <Project Path="AgentStudio.Tests/AgentStudio.Tests.csproj" />
+  <Project Path="AgentStudio.Web/AgentStudio.Web.csproj" />
+</Solution>

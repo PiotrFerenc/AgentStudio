@@ -1,0 +1,408 @@
+@page "/agents/{Id:guid}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject AgentStudio.Web.Services.StudioApiClient Api
+@using AgentStudio.Domain
+@using AgentStudio.Contracts
+
+<PageTitle>@(Agent?.Name ?? "Agent")</PageTitle>
+
+@if (Agent is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="panel">
+        <h2>@Agent.Name <span class="badge">@Agent.ModelProviderName / @Agent.ModelName</span></h2>
+        <p>@Agent.Description</p>
+        <p>
+            Draft status: <strong>@DraftStatus</strong>
+            <button class="primary" @onclick="SaveAsync">Save draft</button>
+            <button class="secondary" @onclick="PublishAsync">Publish version</button>
+            <button class="secondary" @onclick="RegenerateKeyAsync">Regenerate API key</button>
+            @if (!string.IsNullOrEmpty(_publishMessage))
+            {
+                <span style="margin-left:1rem">@_publishMessage</span>
+            }
+        </p>
+        <p>
+            <label style="display:inline;margin:0" title="Safety cap on total node executions per run — also the loop-iteration guard.">Max steps</label>
+            <input type="number" min="1" style="width:6em;display:inline-block;margin:0 0 0 .4rem" @bind="_maxSteps" @bind:event="oninput" />
+        </p>
+        @if (_newApiKey is not null)
+        {
+            <p style="margin-top:.5rem">
+                New API key (shown once — copy it now): <code>@_newApiKey</code>
+                <button class="secondary" style="margin-left:.5rem;padding:.15rem .6rem;font-size:.75rem"
+                        @onclick="CopyApiKey">copy</button>
+            </p>
+        }
+        @if (_publishedVersions.Any())
+        {
+            <p style="margin-top:.5rem">
+                Public chat links:
+                @foreach (var v in _publishedVersions)
+                {
+                    <div style="margin:.25rem 0">
+                        <code>/chat/@Agent.Id/@v.Version?key=YOUR_API_KEY</code>
+                        <button class="secondary" style="margin:0 0 0 .5rem;padding:.15rem .6rem;font-size:.75rem"
+                                @onclick="() => CopyLink(v.Version)">copy</button>
+                        <button class="secondary" style="margin:0 0 0 .5rem;padding:.15rem .6rem;font-size:.75rem"
+                                @onclick="() => UnpublishAsync(v.Version)">unpublish</button>
+                        <button class="secondary" style="margin:0 0 0 .5rem;padding:.15rem .6rem;font-size:.75rem"
+                                @onclick="() => RepublishAsync(v.Version)">republish</button>
+                    </div>
+                }
+            </p>
+        }
+        @if (_unpublishedVersions.Any())
+        {
+            <p style="margin-top:.5rem">
+                Unpublished versions:
+                @foreach (var v in _unpublishedVersions)
+                {
+                    <div style="margin:.25rem 0">
+                        <code>v@v.Version</code>
+                        <button class="secondary" style="margin:0 0 0 .5rem;padding:.15rem .6rem;font-size:.75rem"
+                                @onclick="() => RepublishAsync(v.Version)">republish</button>
+                    </div>
+                }
+            </p>
+        }
+        @if (_validation is not null && !_validation.IsValid)
+        {
+            <ul class="error-list">
+                @foreach (var e in _validation.Errors)
+                {
+                    <li>@e</li>
+                }
+            </ul>
+        }
+    </div>
+
+    <div class="panel">
+        <h2>Workflow Graph</h2>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap">
+            <div style="flex:2;min-width:480px">
+                <GraphEditor Graph="_graph" GraphChanged="OnGraphChanged" @ref="_editor" />
+            </div>
+            <div style="flex:1;min-width:280px">
+                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" />
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Documents (RAG)</h2>
+        <p style="color:#868e96;font-size:.85rem">Plain text only (.txt, .md, .csv, .json, .log). Needs an embedding model on this agent's provider — set one on the Providers page.</p>
+        @if (_documents is null)
+        {
+            <p>Loading...</p>
+        }
+        else if (_documents.Count == 0)
+        {
+            <p>No documents yet.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>File</th><th>Uploaded</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var d in _documents)
+                    {
+                        <tr>
+                            <td>@d.FileName</td>
+                            <td>@d.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td><button class="secondary" @onclick="() => DeleteDocumentAsync(d.Id)">Delete</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        <InputFile OnChange="UploadDocumentAsync" />
+        @if (_documentError is not null)
+        {
+            <p class="error-list">@_documentError</p>
+        }
+    </div>
+
+    <div class="panel">
+        <h2>Test Chat (draft)</h2>
+        <div class="chat-box">
+            @foreach (var m in _chatMessages)
+            {
+                <div class="chat-msg @m.Role">
+                    <div class="role">@m.Role</div>
+                    <div class="content">@m.Content</div>
+                </div>
+            }
+            @if (_streaming.Length > 0)
+            {
+                <div class="chat-msg assistant">
+                    <div class="role">assistant</div>
+                    <div class="content">@_streaming</div>
+                </div>
+            }
+        </div>
+        <div style="display:flex;gap:.5rem;margin-top:.75rem">
+            <input type="text" @bind="_chatInput" @bind:event="oninput" placeholder="Type a message..." style="flex:1" />
+            <button class="primary" style="margin-top:0" @onclick="SendAsync" disabled="@_sending">Send</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Execution Logs</h2>
+        <table>
+            <thead><tr><th>Execution</th><th>Status</th><th>Started</th><th>Duration</th><th>Steps</th><th>Error</th></tr></thead>
+            <tbody>
+                @foreach (var l in _logs ?? new())
+                {
+                    <tr style="cursor:pointer" @onclick="() => ToggleLog(l.ExecutionId)">
+                        <td>@( _expandedLogs.Contains(l.ExecutionId) ? "▾" : "▸" ) <code>@l.ExecutionId[..8]</code></td>
+                        <td>@l.Status</td>
+                        <td>@l.StartedAt.ToString("HH:mm:ss")</td>
+                        <td>@((l.CompletedAt - l.StartedAt)?.TotalSeconds.ToString("F1") ?? "…")s</td>
+                        <td>@l.Steps.Count</td>
+                        <td>@l.Error</td>
+                    </tr>
+                    @if (_expandedLogs.Contains(l.ExecutionId))
+                    {
+                        <tr>
+                            <td colspan="6" style="background:rgba(255,255,255,.03);padding:.5rem 1rem">
+                                <table style="width:100%">
+                                    <thead><tr><th>Node</th><th>Type</th><th>Status</th><th>Duration</th><th>Detail</th><th>Error</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var s in l.Steps)
+                                        {
+                                            <tr>
+                                                <td><code>@s.NodeId</code></td>
+                                                <td>@s.NodeType</td>
+                                                <td>@s.Status</td>
+                                                <td>@((s.CompletedAt - s.StartedAt)?.TotalSeconds.ToString("F2") ?? "…")s</td>
+                                                <td>@s.Detail</td>
+                                                <td>@s.Error</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Agent? Agent;
+    private List<Agent>? _allAgents;
+    private List<DatabaseConnectionConfig>? _allConnections;
+    private WorkflowGraphDto _graph = new();
+    private WorkflowNodeDto? _selectedNode;
+    private GraphEditor? _editor;
+    private string DraftStatus = "";
+    private int _maxSteps = 100;
+    private ValidationResultDto? _validation;
+    private string? _publishMessage;
+
+    private List<(string Role, string Content)> _chatMessages = new();
+    private string _chatInput = "";
+    private string _streaming = "";
+    private bool _sending;
+    private string? _conversationId;
+    private List<ExecutionLog>? _logs;
+    private HashSet<string> _expandedLogs = new();
+    private string? _newApiKey;
+    private List<Document>? _documents;
+    private string? _documentError;
+
+    private IEnumerable<AgentVersion> _publishedVersions =>
+        Agent?.Versions.Where(v => v.Status == AgentVersionStatus.Published).OrderByDescending(v => v.Version)
+        ?? Enumerable.Empty<AgentVersion>();
+
+    private IEnumerable<AgentVersion> _unpublishedVersions =>
+        Agent?.Versions.Where(v => v.Status == AgentVersionStatus.Unpublished).OrderByDescending(v => v.Version)
+        ?? Enumerable.Empty<AgentVersion>();
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private async Task CopyLink(int version)
+    {
+        var url = $"{Nav.BaseUri.TrimEnd('/')}/chat/{Agent!.Id}/{version}?key=YOUR_API_KEY";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Agent = await Api.GetAgentAsync(Id);
+        if (Agent?.Draft is not null)
+        {
+            _graph = GraphMapper.ToDto(Agent.Draft.Graph);
+            DraftStatus = Agent.Draft.Status.ToString();
+            _maxSteps = Agent.Draft.MaxSteps;
+        }
+        _logs = await Api.ListLogsAsync(Id);
+        _documents = await Api.ListDocumentsAsync(Id);
+        _allAgents = await Api.ListAgentsAsync();
+        _allConnections = await Api.ListDatabaseConnectionsAsync();
+    }
+
+    private async Task UploadDocumentAsync(InputFileChangeEventArgs e)
+    {
+        _documentError = null;
+        try
+        {
+            const long maxSize = 5 * 1024 * 1024; // 5 MB — plain text, no need for more
+            await using var stream = e.File.OpenReadStream(maxSize);
+            await Api.UploadDocumentAsync(Id, e.File.Name, stream);
+            _documents = await Api.ListDocumentsAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            _documentError = ex.Message;
+        }
+    }
+
+    private async Task DeleteDocumentAsync(Guid documentId)
+    {
+        _documentError = null;
+        try
+        {
+            await Api.DeleteDocumentAsync(documentId);
+            _documents = await Api.ListDocumentsAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            _documentError = ex.Message;
+        }
+    }
+
+    private void OnGraphChanged(WorkflowGraphDto graph)
+    {
+        _graph = graph;
+        _selectedNode = _editor?.SelectedNode;
+    }
+
+    private void OnNodeChanged(WorkflowNodeDto node)
+    {
+        var idx = _graph.Nodes.FindIndex(n => n.Id == node.Id);
+        if (idx >= 0) _graph.Nodes[idx] = node;
+    }
+
+    private async Task SaveAsync()
+    {
+        _validation = await Api.SaveDraftAsync(Id, _graph, _maxSteps);
+        DraftStatus = _validation.IsValid ? "Validated" : "Draft";
+    }
+
+    private async Task PublishAsync()
+    {
+        try
+        {
+            var v = await Api.PublishAsync(Id);
+            _publishMessage = $"Published v{v.Version}.";
+            _validation = null;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _publishMessage = ex.Message;
+        }
+    }
+
+    private void ToggleLog(string executionId)
+    {
+        if (!_expandedLogs.Remove(executionId))
+            _expandedLogs.Add(executionId);
+    }
+
+    private async Task CopyApiKey() =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _newApiKey);
+
+    private async Task RegenerateKeyAsync()
+    {
+        try
+        {
+            _newApiKey = await Api.RegenerateApiKeyAsync(Id);
+            _publishMessage = "API key regenerated.";
+        }
+        catch (Exception ex)
+        {
+            _publishMessage = ex.Message;
+        }
+    }
+
+    private async Task UnpublishAsync(int version)
+    {
+        try
+        {
+            await Api.UnpublishAsync(Id, version);
+            _publishMessage = $"Unpublished v{version}.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _publishMessage = ex.Message;
+        }
+    }
+
+    private async Task RepublishAsync(int version)
+    {
+        try
+        {
+            var v = await Api.RepublishAsync(Id, version);
+            _publishMessage = $"Republished v{version} as v{v.Version}.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _publishMessage = ex.Message;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (Agent is null || string.IsNullOrWhiteSpace(_chatInput)) return;
+        _sending = true;
+        var message = _chatInput;
+        _chatInput = "";
+        _chatMessages.Add(("user", message));
+        _streaming = "";
+
+        try
+        {
+            var ctx = await Api.StartTestChatAsync(Agent, _conversationId);
+            if (ctx is null)
+            {
+                _chatMessages.Add(("system", "No provider or version configured."));
+                return;
+            }
+            var (conversation, provider, version) = ctx.Value;
+            _conversationId = conversation.ConversationId;
+
+            await foreach (var chunk in Api.RunTestChatAsync(Agent, version, provider, conversation, message))
+            {
+                _streaming += chunk;
+                StateHasChanged();
+            }
+            _chatMessages.Add(("assistant", _streaming));
+            _streaming = "";
+            _logs = await Api.ListLogsAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            _chatMessages.Add(("system", ex.Message));
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}
