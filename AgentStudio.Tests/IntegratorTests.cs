@@ -122,4 +122,53 @@ public class IntegratorTests
             integrator.ExecuteAsync(new Dictionary<string, string> { ["projectKey"] = "P", ["summary"] = "x" }, new Dictionary<string, string>()));
         Assert.Contains("not configured", ex.Message);
     }
+
+    [Fact]
+    public async Task Jira_omits_description_field_when_not_provided()
+    {
+        // Jira Cloud v3 rejects an ADF text node with an empty string — sending no description
+        // field at all (rather than one with text:"") is what makes an optional description
+        // actually optional.
+        var handler = new CapturingHandler();
+        var integrator = new JiraCreateIssueIntegrator(
+            new FakeHttpClientFactory(handler),
+            Options.Create(new JiraIntegratorOptions { BaseUrl = "https://your.atlassian.net", Email = "bot@example.com", ApiToken = "tok" }));
+
+        await integrator.ExecuteAsync(new Dictionary<string, string> { ["projectKey"] = "PROJ", ["summary"] = "No description" }, new Dictionary<string, string>());
+
+        Assert.DoesNotContain("\"description\"", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task Jira_includes_description_field_when_provided()
+    {
+        var handler = new CapturingHandler();
+        var integrator = new JiraCreateIssueIntegrator(
+            new FakeHttpClientFactory(handler),
+            Options.Create(new JiraIntegratorOptions { BaseUrl = "https://your.atlassian.net", Email = "bot@example.com", ApiToken = "tok" }));
+
+        await integrator.ExecuteAsync(new Dictionary<string, string> { ["projectKey"] = "PROJ", ["summary"] = "Has description", ["description"] = "some details" }, new Dictionary<string, string>());
+
+        Assert.Contains("\"description\"", handler.LastRequestBody);
+        Assert.Contains("some details", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task Oversized_response_is_rejected_instead_of_buffered_unbounded()
+    {
+        var handler = new CapturingHandler
+        {
+            Response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(new string('x', 1_000_001))
+            }
+        };
+        var integrator = new GitLabCreateIssueIntegrator(
+            new FakeHttpClientFactory(handler),
+            Options.Create(new GitLabIntegratorOptions { BaseUrl = "https://gitlab.example.com", ApiToken = "tok" }));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            integrator.ExecuteAsync(new Dictionary<string, string> { ["projectId"] = "1", ["title"] = "x" }, new Dictionary<string, string>()));
+        Assert.Contains("byte limit", ex.Message);
+    }
 }

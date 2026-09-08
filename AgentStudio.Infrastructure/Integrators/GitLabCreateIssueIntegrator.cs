@@ -49,10 +49,7 @@ public sealed class GitLabCreateIssueIntegrator : IIntegrator
         request.Headers.Add("PRIVATE-TOKEN", _options.ApiToken);
 
         var client = _httpClientFactory.CreateClient("agentstudio-http-tool");
-        using var response = await client.SendAsync(request, ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"GitLab create issue failed ({(int)response.StatusCode}): {body}");
+        var body = await IntegratorHttp.SendAsync(client, request, "GitLab create issue", ct);
 
         using var doc = JsonDocument.Parse(body);
         var iid = doc.RootElement.TryGetProperty("iid", out var iidProp) ? iidProp.GetInt32() : (int?)null;

@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 120 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 123 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -145,7 +145,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 120 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 123 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -159,7 +159,9 @@ dotnet test
 # odrzucany czytelnym błędem, szyfrowanie ApiKey (round-trip, GCM auth-tag chroni przed
 # manipulacją, tolerancja dla wierszy sprzed włączenia szyfrowania), custom integratory
 # (config expandowany przed wywołaniem, nieznana nazwa integratora → czytelny błąd,
-# GitLab/Jira: URL/nagłówki/auth/body budowane poprawnie przez CapturingHandler)
+# GitLab/Jira: URL/nagłówki/auth/body budowane poprawnie przez CapturingHandler, Jira pomija
+# pole description gdy puste (ADF nie akceptuje pustego text), odpowiedź integratora ucięta
+# ponad 1MB zamiast buforowana bez limitu)
 ```
 
 ## Wdrożenie (Windows/IIS)

@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AgentStudio.Application;
 using Microsoft.Extensions.Options;
 
@@ -46,37 +46,43 @@ public sealed class JiraCreateIssueIntegrator : IIntegrator
         var descriptionText = config.GetValueOrDefault("description", "");
         var issueType = config.GetValueOrDefault("issueType", "Task");
 
-        var payload = new
+        var fields = new JsonObject
         {
-            fields = new
+            ["project"] = new JsonObject { ["key"] = projectKey },
+            ["summary"] = summary,
+            ["issuetype"] = new JsonObject { ["name"] = issueType }
+        };
+        // Jira Cloud v3 requires Atlassian Document Format for rich text, and rejects an empty
+        // "text" node — so description is only included when there's something to say, rather
+        // than always sending a paragraph containing "".
+        if (!string.IsNullOrWhiteSpace(descriptionText))
+        {
+            fields["description"] = new JsonObject
             {
-                project = new { key = projectKey },
-                summary,
-                issuetype = new { name = issueType },
-                // Jira Cloud v3 requires Atlassian Document Format for rich text — a single
-                // plain-text paragraph is the minimal valid shape.
-                description = new
+                ["type"] = "doc",
+                ["version"] = 1,
+                ["content"] = new JsonArray
                 {
-                    type = "doc",
-                    version = 1,
-                    content = new object[]
+                    new JsonObject
                     {
-                        new { type = "paragraph", content = new object[] { new { type = "text", text = descriptionText } } }
+                        ["type"] = "paragraph",
+                        ["content"] = new JsonArray { new JsonObject { ["type"] = "text", ["text"] = descriptionText } }
                     }
                 }
-            }
-        };
+            };
+        }
+        var payload = new JsonObject { ["fields"] = fields };
 
         var url = $"{_options.BaseUrl.TrimEnd('/')}/rest/api/3/issue";
-        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(payload) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json")
+        };
         var basicAuth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_options.Email}:{_options.ApiToken}"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
 
         var client = _httpClientFactory.CreateClient("agentstudio-http-tool");
-        using var response = await client.SendAsync(request, ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Jira create issue failed ({(int)response.StatusCode}): {body}");
+        var body = await IntegratorHttp.SendAsync(client, request, "Jira create issue", ct);
 
         using var doc = JsonDocument.Parse(body);
         var key = doc.RootElement.TryGetProperty("key", out var keyProp) ? keyProp.GetString() : null;
