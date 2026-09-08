@@ -56,6 +56,19 @@ Development) zostaje jako fallback dla CI/szybkich testów bez Dockera — świa
 dane znikają przy restarcie procesu. Zmień connection string w `appsettings.Production.json`
 dla wdrożenia.
 
+**Testowa baza z przykładowymi danymi** (do budowania/testowania węzła `databaseQuery`) — osobna
+baza `agentstudio_test` na tym samym kontenerze, niezwiązana ze schematem AgentStudio, załadowana
+z `test-data.sql` w repo (tabele `customers`/`orders` z kilkoma wierszami):
+
+```bash
+docker exec agentstudio-postgres psql -U agentstudio -d postgres -c "CREATE DATABASE agentstudio_test OWNER agentstudio;"
+docker exec -i agentstudio-postgres psql -U agentstudio -d agentstudio_test < test-data.sql
+```
+
+`appsettings.Development.json` ma już wpis `DatabaseConnections` o nazwie `test-data` wskazujący
+na tę bazę (read-only) — gotowy do wyboru w węźle `databaseQuery` bez dalszej konfiguracji, o ile
+powyższe polecenia zostały wykonane.
+
 ## Konfiguracja modeli
 
 1. Otwórz http://localhost:5251/providers
