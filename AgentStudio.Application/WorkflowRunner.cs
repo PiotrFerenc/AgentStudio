@@ -111,10 +111,13 @@ public sealed class WorkflowRunner
             if (callDepth == 0)
                 LastExecutionId = log.ExecutionId;
             var variables = conversation.Variables;
+            variables["input"] = userMessage;
+            // formValues applied AFTER userMessage: a form run always passes userMessage=""
+            // (RunForm.razor), so a named field must win — including one literally named
+            // "input" (a reasonable choice, since {input} is the documented placeholder).
             if (formValues is not null)
                 foreach (var (name, value) in formValues)
                     variables[name] = value;
-            variables["input"] = userMessage;
 
             lock (conversation)
             {

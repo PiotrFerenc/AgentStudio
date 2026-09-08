@@ -2,6 +2,7 @@ using System.Text.Json;
 using AgentStudio.Application;
 using AgentStudio.Domain;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace AgentStudio.Infrastructure;
 
@@ -45,7 +46,13 @@ public sealed class NpgsqlDatabaseQueryExecutor : IDatabaseQueryExecutor
         foreach (var (name, template) in node.Parameters)
         {
             var paramName = name.StartsWith('@') ? name[1..] : name;
-            cmd.Parameters.Add(new NpgsqlParameter(paramName, WorkflowRunner.ExpandTemplate(template, variables)));
+            // NpgsqlDbType.Unknown: all Parameters are plain text templates, so a typed (Text)
+            // parameter fails on e.g. "integer = text" — Unknown makes Postgres infer the type
+            // from context, same as a literal in a plain-text query.
+            cmd.Parameters.Add(new NpgsqlParameter(paramName, NpgsqlDbType.Unknown)
+            {
+                Value = WorkflowRunner.ExpandTemplate(template, variables)
+            });
         }
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);

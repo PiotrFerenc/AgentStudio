@@ -70,7 +70,7 @@ Other runner details worth knowing:
 - `ParallelNode`/`JoinNode` fan out branches concurrently; each branch buffers its output via a `ChunkSink` delegate instead of writing straight to the channel, so concurrent branches' streamed text never interleaves — the `JoinNode` flushes each branch's buffer in declared edge order once all branches finish.
 - `SubAgentNode` recursively calls `RunAsync` on the same `WorkflowRunner` instance for a different (published) agent, with a throwaway, unpersisted `ConversationState`. `callDepth` (default 0, capped at `MaxSubAgentDepth = 5`) guards against agent-calls-agent cycles, since the single-graph `WorkflowValidator` can't see across agents. `LastExecutionId` is only set when `callDepth == 0`, since nested calls reuse the same runner instance.
 - `DatabaseQueryNode` always binds `Parameters` as real `NpgsqlParameter` values — `Query` itself is never template-expanded, only the named parameters are (SQL injection guard, same rigor as the HTTP tool's SSRF guard below).
-- Optional `formValues` param on `RunAsync` merges into `conversation.Variables` before `variables["input"] = userMessage` — this is how the `/run/{agentId}/{version}` form page feeds named fields into `{variables.name}` templates.
+- Optional `formValues` param on `RunAsync` merges into `conversation.Variables` *after* `variables["input"] = userMessage` — this is how the `/run/{agentId}/{version}` form page feeds named fields into `{variables.name}` templates. Applied last so a form run (which always passes `userMessage=""`) lets a field literally named `input` win and populate `{input}` too, instead of being silently wiped to empty.
 
 ### jsonb columns on entities
 

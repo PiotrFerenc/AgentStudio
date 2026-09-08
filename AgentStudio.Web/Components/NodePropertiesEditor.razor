@@ -96,7 +96,7 @@ else
             <label>SQL query (@@name placeholders — never {variables.x} directly, that's SQL injection)</label>
             <textarea @bind="DbQuery" @bind:event="oninput" @bind:after="Changed"></textarea>
             <label>Parameters (one per line: name=value, value supports {input}/{variables.x})</label>
-            <textarea @bind="DbParametersText" @bind:event="oninput" @bind:after="Changed" placeholder="status=variables.status"></textarea>
+            <textarea @bind="DbParametersText" @bind:after="Changed" placeholder="status=variables.status"></textarea>
             <label>Timeout (seconds)</label>
             <input type="text" @bind="DbTimeout" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
@@ -122,7 +122,7 @@ else
                 }
             </select>
             <label>Config (one per line: name=value, value supports {input}/{variables.x})</label>
-            <textarea @bind="IntegratorConfigText" @bind:event="oninput" @bind:after="Changed" placeholder="projectId=42&#10;title=New issue"></textarea>
+            <textarea @bind="IntegratorConfigText" @bind:after="Changed" placeholder="projectId=42&#10;title=New issue"></textarea>
             <label>Result variable</label>
             <input type="text" @bind="IntegratorResultVariable" @bind:event="oninput" @bind:after="Changed" />
             <p style="color:#868e96;font-size:.8rem">Custom integration with an external system (GitLab, Jira, ...). New integrators are written as code, not configured here — see CLAUDE.md.</p>
