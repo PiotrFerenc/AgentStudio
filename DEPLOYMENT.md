@@ -13,8 +13,19 @@ served by this one app — there is no separate API process.
 > (`/api/agents/{id}/versions/{v}/conversations` and `/stream`) stay anonymous, protected only
 > by the per-agent `X-Agent-Api-Key` header — those (plus `/chat/*`, `/run/*` and `/widget/*`)
 > are the endpoints safe to expose publicly; still bind the rest to an internal interface or a
-> reverse proxy with IP restrictions, since there's no rate limiting or lockout on `/auth/login`
-> yet.
+> reverse proxy with IP restrictions.
+>
+> `/auth/login` and `/auth/setup` are rate-limited to 5 requests/minute per client IP (returns
+> `429`, `AuthRateLimiting` in `Program.cs`, ASP.NET Core's built-in rate limiter — no new
+> dependency). **This is IP-based, not account-lockout** — it throttles one client hammering the
+> form, not credential stuffing spread across many IPs. It also relies on
+> `HttpContext.Connection.RemoteIpAddress` being the real client address: **behind a reverse
+> proxy (ARR/nginx) this middleware isn't configured to trust `X-Forwarded-For`**, so every
+> request arrives as the proxy's own IP and the 5/minute budget is shared by *all* users behind
+> that proxy, not per-visitor. If you put a reverse proxy in front and see legitimate users
+> getting `429`, wire up `UseForwardedHeaders` (trusting only your proxy's address) before this
+> limiter — not done here since it wasn't needed for the direct-connection (no proxy) case this
+> was written against.
 
 ## 1. Publish the app
 

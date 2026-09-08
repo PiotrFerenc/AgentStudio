@@ -6,8 +6,10 @@ using AgentStudio.Domain;
 using AgentStudio.Infrastructure;
 using AgentStudio.Web.Components;
 using AgentStudio.Web.Services;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +22,11 @@ builder.Services.AddScoped<StudioApiClient>();
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(AuthRateLimiting.PolicyName, AuthRateLimiting.GetPartition);
+});
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -60,13 +67,17 @@ if (!app.Environment.IsDevelopment())
 // /api is a JSON API — never re-execute its error responses against a Razor Components page
 // (that re-execution replays the original request, including its JSON body, into a page whose
 // POST handling requires antiforgery-validated form data, turning a clean 401/404 into a 400).
+// /auth is plain form posts/redirects for the same reason, and additionally must let a 429 from
+// the login rate limiter reach the client as 429 — re-execution against /not-found silently
+// turned it into a 404, hiding from the client (and from logs) that it was actually throttled.
 app.UseWhen(
-    ctx => !ctx.Request.Path.StartsWithSegments("/api"),
+    ctx => !ctx.Request.Path.StartsWithSegments("/api") && !ctx.Request.Path.StartsWithSegments("/auth"),
     branch => branch.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true));
 app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.UseAntiforgery();
 
@@ -94,7 +105,7 @@ auth.MapPost("/login", async (HttpContext http, UserService users, CancellationT
         CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
     return Results.Redirect("/");
-});
+}).RequireRateLimiting(AuthRateLimiting.PolicyName);
 
 auth.MapPost("/logout", async (HttpContext http) =>
 {
@@ -115,7 +126,7 @@ auth.MapPost("/setup", async (HttpContext http, UserService users, CancellationT
 
     await users.CreateAsync(username, password, UserRole.Admin, ct);
     return Results.Redirect("/login");
-});
+}).RequireRateLimiting(AuthRateLimiting.PolicyName);
 
 // ============================
 // Studio management API (cookie-authenticated — phase 2)
@@ -336,3 +347,26 @@ app.Run();
 
 /// <summary>Exposes the top-level Program for WebApplicationFactory&lt;Program&gt; in tests.</summary>
 public partial class Program;
+
+/// <summary>Rate limiting for the anonymous /auth/login and /auth/setup endpoints — no lockout
+/// mechanism existed before this (see DEPLOYMENT.md's security note). Partitioned per client IP
+/// so one abusive client can't exhaust attempts for everyone; falls back to the per-request
+/// TraceIdentifier when there's no real IP (e.g. an in-memory test server), so unrelated
+/// requests never share a single bucket just because the transport can't report an address.</summary>
+public static class AuthRateLimiting
+{
+    public const string PolicyName = "auth-login";
+    public const int PermitLimit = 5;
+    public static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
+
+    public static RateLimitPartition<string> GetPartition(HttpContext httpContext)
+    {
+        var key = httpContext.Connection.RemoteIpAddress?.ToString() ?? httpContext.TraceIdentifier;
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = PermitLimit,
+            Window = Window,
+            QueueLimit = 0
+        });
+    }
+}

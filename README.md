@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 99 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 102 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -143,7 +143,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 99 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 102 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -169,6 +169,12 @@ przekierowuje `/` → `/login` → `/setup`, gdzie zakłada się pierwsze konto 
 zarządzane są na `/users` (tylko Admin). Runtime endpointy agentów
 (`/api/agents/{id}/versions/{v}/conversations`, `/stream`), `/chat/*` i `/widget/*` **zostają
 publiczne** — chroni je wyłącznie `X-Agent-Api-Key`, bez zmian względem fazy 1.
+
+`/auth/login` i `/auth/setup` mają rate limit: 5 żądań/minutę per IP klienta (429 powyżej limitu,
+`AuthRateLimiting` w `Program.cs`, wbudowany rate limiter ASP.NET Core — zero nowych zależności).
+To ochrona per-IP, nie lockout konta — za reverse proxy bez skonfigurowanego zaufania do
+`X-Forwarded-For` limit dzieli się między wszystkich użytkowników za tym proxy (patrz
+DEPLOYMENT.md).
 
 ## RAG i dokumenty (faza 2)
 
