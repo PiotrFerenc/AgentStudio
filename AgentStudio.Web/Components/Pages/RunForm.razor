@@ -36,18 +36,18 @@ else if (_agent is not null && _version is not null)
             <strong>@_agent.Name</strong>
             <span class="chat-header-sub">v@Version · form · powered by AgentStudio</span>
         </header>
-        <div class="chat-messages">
-            <div class="chat-empty" style="max-width:480px;margin:1.5rem auto">
+        <div class="chat-messages run-messages">
+            <div class="run-form">
                 @if (_version.FormFields.Count == 0)
                 {
-                    <p>This version has no form fields configured.</p>
+                    <p class="chat-empty">This version has no form fields configured.</p>
                 }
                 else
                 {
                     @foreach (var f in _version.FormFields)
                     {
-                        <div style="margin-bottom:1rem;text-align:left">
-                            <label>@f.Label@(f.Required ? " *" : "")</label>
+                        <div class="run-field">
+                            <label>@f.Label @if (f.Required) { <span class="run-required">*</span> }</label>
                             @if (f.Type == "textarea")
                             {
                                 <textarea @bind="_values[f.Name]" @bind:event="oninput"></textarea>
@@ -68,28 +68,140 @@ else if (_agent is not null && _version is not null)
                             }
                         </div>
                     }
-                    <button class="primary" @onclick="SubmitAsync" disabled="@_sending">Run</button>
+                    <button class="run-submit" @onclick="SubmitAsync" disabled="@_sending">@(_sending ? "Running…" : "Run")</button>
                 }
                 @if (_error is not null)
                 {
-                    <p class="chat-key-error">@_error</p>
+                    <p class="run-error">@_error</p>
                 }
             </div>
             @if (_result is not null)
             {
-                <div class="chat-bubble-row assistant">
-                    <div class="chat-bubble assistant">@_result</div>
+                <div class="run-result">
+                    <span class="run-result-label">Result</span>
+                    <div class="run-result-body">@_result</div>
                 </div>
             }
             else if (_sending)
             {
-                <div class="chat-bubble-row assistant">
-                    <div class="chat-bubble assistant">…</div>
+                <div class="run-result run-result-pending">
+                    <span class="run-dot"></span><span class="run-dot"></span><span class="run-dot"></span>
                 </div>
             }
         </div>
     </div>
 }
+
+<style>
+    .run-messages { justify-content: flex-start; }
+    .run-form {
+        max-width: 480px;
+        width: 100%;
+        margin: 1.5rem auto 0;
+        background: #fff;
+        border: 1px solid #e5e4e0;
+        border-radius: 12px;
+        padding: 1.5rem 1.75rem 1.75rem;
+    }
+    .run-field { margin-bottom: 1.1rem; text-align: left; }
+    .run-field:last-of-type { margin-bottom: 1.4rem; }
+    .run-field label {
+        display: block;
+        font-size: .78rem;
+        font-weight: 650;
+        color: #57565e;
+        margin-bottom: .4rem;
+        letter-spacing: .01em;
+    }
+    .run-required { color: #e03131; }
+    .run-field input,
+    .run-field textarea,
+    .run-field select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: .6rem .75rem;
+        border: 1px solid #e5e4e0;
+        border-radius: 8px;
+        font-size: .9rem;
+        font-family: inherit;
+        color: #16161a;
+        background: #fff;
+        transition: border-color .12s, box-shadow .12s;
+    }
+    .run-field textarea { min-height: 90px; resize: vertical; }
+    .run-field input:focus,
+    .run-field textarea:focus,
+    .run-field select:focus {
+        outline: none;
+        border-color: #3b5bdb;
+        box-shadow: 0 0 0 3px #edf0fd;
+    }
+    .run-submit {
+        width: 100%;
+        background: #16161a;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: .7rem 1.15rem;
+        cursor: pointer;
+        font-size: .92rem;
+        font-weight: 650;
+        font-family: inherit;
+        transition: background .12s;
+    }
+    .run-submit:hover:not(:disabled) { background: #2a2a31; }
+    .run-submit:disabled { opacity: .5; cursor: default; }
+    .run-error {
+        color: #e03131;
+        font-size: .82rem;
+        margin: .85rem 0 0;
+        text-align: center;
+    }
+    .run-result {
+        max-width: 480px;
+        width: 100%;
+        margin: 1rem auto 0;
+        background: #f4f4f2;
+        border: 1px solid #e5e4e0;
+        border-radius: 12px;
+        padding: 1rem 1.25rem 1.15rem;
+    }
+    .run-result-label {
+        display: block;
+        font-size: .68rem;
+        font-weight: 700;
+        letter-spacing: .05em;
+        text-transform: uppercase;
+        color: #8b8a92;
+        margin-bottom: .4rem;
+    }
+    .run-result-body {
+        white-space: pre-wrap;
+        font-size: .9rem;
+        line-height: 1.5;
+        color: #16161a;
+    }
+    .run-result-pending {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: .3rem;
+        padding: 1.1rem;
+    }
+    .run-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #8b8a92;
+        animation: run-pulse 1.1s ease-in-out infinite;
+    }
+    .run-dot:nth-child(2) { animation-delay: .15s; }
+    .run-dot:nth-child(3) { animation-delay: .3s; }
+    @@keyframes run-pulse {
+        0%, 80%, 100% { opacity: .25; transform: scale(.85); }
+        40% { opacity: 1; transform: scale(1); }
+    }
+</style>
 
 @code {
     [Parameter] public Guid AgentId { get; set; }
