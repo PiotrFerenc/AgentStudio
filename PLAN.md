@@ -876,3 +876,156 @@ uruchamiania obok `/chat/{agentId}/{version}`.
   Sprawdzone i bez rozjazdów: numery portów Postgresa (5433 dev, 5432 jako typowy default przy
   Option B w DEPLOYMENT.md — to rozróżnienie jest zamierzone, nie błąd), ścieżka migracji,
   `Documents:StoragePath` (zweryfikowane grepem względem `DocumentIndexer.cs`).
+
+# Plan dla AgentStudio — faza 4
+
+## 1. Cel fazy 4
+
+Dopisane na prośbę użytkownika (nie z wcześniej wybranego zakresu fazy 3) — mid-turn, podczas
+przenoszenia konektorów DB z panelu do configu (§ wyżej): możliwość **pisania własnych
+integratorów** z zewnętrznymi systemami (np. GitLab, Jira) i używania ich jako zwykłego kroku w
+grafie workflow, obok istniejących `http`/`databaseQuery`/`subAgent`. **Nie zaimplementowane —
+ten dokument to sam projekt (wymaganie + architektura + ladder), do realizacji w kolejnej
+sesji** ("zrealizuj fazę 4" / "zrealizuj etap 1 z planu na fazę 4").
+
+## 2. Wymaganie (dosłownie od użytkownika)
+
+> chce też mieć możliwość pisania własnych integratorów. np do gitlaba albo jiry. musi być
+> dodawany jak zwykły krok.
+
+Rozbite na trzy części:
+1. **Pisanie własnych integratorów** — deweloperski punkt rozszerzenia, nie no-code UI. Ktoś
+   pisze kod (klasę C#), nie klika konfiguratora w panelu.
+2. **Przykłady: GitLab, Jira** — konkretne integracje jako dowód słuszności designu, nie
+   jedyne dwie, które mają kiedykolwiek istnieć.
+3. **"Dodawany jak zwykły krok"** — po zarejestrowaniu, integrator musi pojawić się w
+   `GraphEditor`/`NodePropertiesEditor` jako wybieralna opcja węzła, tak samo jak `subAgent`
+   wybiera docelowego agenta, a `databaseQuery` wybiera connection.
+
+## 3. Zasady projektowe (ladder — dlaczego te wybory)
+
+- **Jeden generyczny węzeł `integrator`, nie osobna klasa węzła per integrację.**
+  Pokusa: `GitLabCreateIssueNode`, `JiraCreateTicketNode`, ... — eksplozja typów węzłów, każdy
+  wymaga własnego case'a w `WorkflowNodeConverter`/`GraphMapper`/`NodePropertiesEditor`. Zamiast
+  tego: `IntegratorNode { IntegratorName, Config (Dictionary<string,string>), ResultVariable }`
+  — dokładnie ten sam kształt co `DatabaseQueryNode { ConnectionName, Parameters, ... }`, który
+  już rozwiązuje identyczny problem (nazwane, zarejestrowane "coś" wybierane po nazwie, z
+  per-wywołanie parametrami). Nowy integrator = nowa klasa `IIntegrator`, zero zmian w
+  Domain/Contracts/edytorze poza jednorazowym dodaniem samego typu węzła `integrator`.
+
+- **`IIntegrator` — interfejs w Application, implementacje w Infrastructure, DI, nie plugin
+  loading.** Żadnego dynamicznego ładowania assembly/reflection/NuGet-plugin-z-runtime — projekt
+  dziś nie ma takiego mechanizmu nigdzie (nawet konektory DB, formularze itd. to zawsze
+  kompilowany kod). Napisanie integratora = nowa klasa implementująca `IIntegrator` w
+  `AgentStudio.Infrastructure/Integrators/`, jedna linijka rejestracji w DI, rebuild, redeploy.
+  Prostsze, bezpieczniejsze (brak wykonywania nieznanego kodu w runtime) i spójne z resztą
+  architektury. Runtime plugin loading — świadomie poza zakresem v1 (YAGNI, dopisać gdy komuś
+  faktycznie zabraknie rebuild/redeploy jako bariery — patrz § 6).
+
+  ```csharp
+  // AgentStudio.Application/Interfaces.cs
+  public interface IIntegrator
+  {
+      /// <summary>Stable, unique key — wartość wybierana w IntegratorNode.IntegratorName i w
+      /// dropdownie NodePropertiesEditor. Np. "gitlab.create-issue".</summary>
+      string Name { get; }
+      /// <summary>Krótki opis widoczny w UI przy wyborze integratora.</summary>
+      string Description { get; }
+      Task<string> ExecuteAsync(IReadOnlyDictionary<string, string> config, IReadOnlyDictionary<string, string> variables, CancellationToken ct = default);
+  }
+  ```
+
+  `WorkflowRunner` dostaje `IEnumerable<IIntegrator> integrators` (standardowy wzorzec .NET DI —
+  `services.AddTransient<IIntegrator, GitLabCreateIssueIntegrator>()` per integrator, wszystkie
+  trafiają do jednej wstrzykiwanej kolekcji). Lookup po nazwie to zwykłe `.FirstOrDefault(i =>
+  i.Name == node.IntegratorName)` — żadnego osobnego rejestru/serwisu, bo kolekcja wstrzyknięta
+  przez DI już nim jest (YAGNI: nie budować `IIntegratorRegistry`, gdy LINQ nad wstrzykniętą
+  kolekcją wystarcza).
+
+- **Dane integratora: dwa poziomy config, jak świeżo przeniesione `DatabaseConnections`.**
+  - **Poziom integratora** (base URL, token API, e-mail konta serwisowego) — w
+    `appsettings.json`, sekcja `Integrators:<Nazwa>` (np. `Integrators:GitLab`,
+    `Integrators:Jira`), bindowana przez `IOptions<TOptions>` we własnej klasie integratora. Ten
+    sam wybór co `DatabaseConnections` — sekrety/connection-owe dane to konfiguracja
+    wdrożeniowa, nie dane aplikacji edytowalne z panelu.
+  - **Poziom węzła** (per-wywołanie: tytuł issue, projekt docelowy, opis) —
+    `IntegratorNode.Config` (`Dictionary<string,string>`), wartości wspierają
+    `{input}`/`{variables.x}`, expandowane przez `WorkflowRunner.ExpandTemplate` PRZED
+    przekazaniem do `IIntegrator.ExecuteAsync` — nigdy surowy string do zapytania/żądania (ten
+    sam rygor co `DatabaseQueryNode.Parameters`, `HttpNode.Body`).
+
+- **Bez nowego mechanizmu bezpieczeństwa typu SSRF-guard.** `HttpNode` chroni przed SSRF, bo URL
+  pochodzi od użytkownika edytującego graf (mógłby wpisać `http://169.254.169.254/...`).
+  Integrator ma URL/host wpisany na sztywno przez dewelopera w kodzie integratora (nie w
+  grafie) — inny model zagrożenia, ten sam poziom zaufania co dziś ma `IChatClientFactory`/
+  `IEmbeddingClientFactory` (skonfigurowany, zaufany endpoint). Nie duplikować SSRF-guard tam,
+  gdzie nie chroni przed niczym nowym.
+
+- **GitLab/Jira to referencyjne implementacje, nie hardcode'owana specjalna ścieżka.** Oba żyją
+  w `AgentStudio.Infrastructure/Integrators/` jak każdy inny `IIntegrator` — dowód, że wzorzec
+  działa dla dwóch różnych API (GitLab REST + PAT, Jira REST + email/token auth), nie fundament
+  do rozbudowy w osobny podsystem.
+
+## 4. Zmiany (do realizacji)
+
+- `AgentStudio.Domain/Agent.cs`: `IntegratorNode : WorkflowNode { IntegratorName, Config,
+  ResultVariable }`.
+- `AgentStudio.Domain/AgentStudioJson.cs`: case `"integrator"` w `WorkflowNodeConverter.Read`
+  **od razu, pierwsze, zanim cokolwiek innego** — nauka z fazy 2 etap 4 / fazy 3 etap 1/2:
+  pominięcie tego to realny deadlock w `WorkflowRunner.ExecuteAsync` (`output.Complete()` nigdy
+  nie odpala), nie tylko błąd walidacji.
+- `AgentStudio.Contracts/Dtos.cs` (`GraphMapper`): case `"integrator"` w `ToDomain`/`ToDto`.
+- `AgentStudio.Domain/WorkflowValidator.cs`: strukturalna walidacja (`IntegratorName` niepuste)
+  — bez dostępu do listy zarejestrowanych integratorów (walidator jest czysty/bez DI, tak jak
+  dziś nie sprawdza istnienia providera ani connection — to sprawdzane dopiero w runtime, ten
+  sam kompromis).
+- `AgentStudio.Application/Interfaces.cs`: `IIntegrator` (wyżej).
+- `AgentStudio.Application/WorkflowRunner.cs`: konstruktor zyskuje `IEnumerable<IIntegrator>
+  integrators`. Case `IntegratorNode`: lookup po `Name`, brak dopasowania → czytelny błąd
+  (analogiczny do "Database connection '...' is not configured."), `Config` expandowany przez
+  `ExpandTemplate` per wartość, wynik `IIntegrator.ExecuteAsync(...)` do `ResultVariable`.
+  Standardowy try/catch/`FailStep`/rethrow jak `HttpNode`/`DatabaseQueryNode`.
+- `AgentStudio.Infrastructure/Integrators/GitLabCreateIssueIntegrator.cs`,
+  `JiraCreateIssueIntegrator.cs` — referencyjne implementacje. `GitLabIntegratorOptions {
+  BaseUrl, ApiToken }`, `JiraIntegratorOptions { BaseUrl, Email, ApiToken }`, bindowane z
+  `appsettings.json` (`Integrators:GitLab`, `Integrators:Jira`), `HttpClient` przez
+  `IHttpClientFactory` (już używany przez `SecureHttpExecutor` — ten sam wzorzec).
+- `AgentStudio.Infrastructure/DependencyInjection.cs`:
+  `services.Configure<GitLabIntegratorOptions>(...)`, `services.AddTransient<IIntegrator,
+  GitLabCreateIssueIntegrator>()`, analogicznie dla Jira.
+- Studio UI: `integrator` w palecie `GraphEditor` (`NodeTypes`). `NodePropertiesEditor.razor`:
+  nowy `case "integrator"` — dropdown wyboru zarejestrowanego integratora (wymaga listy
+  dostępnych integratorów przekazanej z `AgentDetail.razor`, analogicznie do
+  `AvailableAgents`/`AvailableConnections` — nowy `[Parameter] List<IntegratorSummary>?
+  AvailableIntegrators`, gdzie `IntegratorSummary { Name, Description }` to lekki DTO, nie cały
+  `IIntegrator` — komponent Blazor nie powinien trzymać referencji do serwisu wykonawczego),
+  edytor `Config` (`nazwa=wartość` per linia, jak `DbParametersText` przy `databaseQuery`).
+- `StudioApiClient`: `ListIntegrators()` zwracająca `IntegratorSummary` zbudowane z
+  wstrzykniętej `IEnumerable<IIntegrator>` (Name+Description, nigdy sama instancja serwisu do
+  Blazor).
+
+## 5. Testy (do realizacji)
+
+- Fake `IIntegrator` w testach `WorkflowRunner` (jak `FakeHttp`, `FakeDatabaseQueryExecutor`) —
+  poprawne przekazanie `Config` (z expandowanymi templatami) i zapis wyniku do zmiennej, czytelny
+  błąd przy nieznanej nazwie integratora.
+- `GitLabCreateIssueIntegrator`/`JiraCreateIssueIntegrator`: albo test przeciwko realnemu
+  publicznemu instance'owi (jeśli dostępny, jak `DatabaseQueryExecutorTests` przeciwko realnemu
+  Postgresowi) — mało prawdopodobne bez sandboxa GitLab/Jira — albo test na poziomie budowania
+  żądania (URL, nagłówki auth, body) bez faktycznego wysłania; decyzja przy implementacji.
+
+## 6. Poza zakresem (świadomie)
+
+- Runtime plugin loading (ładowanie integratora bez rebuildu/redeploy) — YAGNI, dopisać gdy
+  ktoś faktycznie tego potrzebuje.
+- No-code UI do definiowania integratorów przez admina w panelu (a-la Zapier/n8n generic
+  connector builder) — sprzeczne z dosłownym wymaganiem ("pisania", nie "konfigurowania").
+- OAuth flow dla GitLab/Jira (autoryzacja per-użytkownik) — referencyjne implementacje używają
+  statycznego tokena API (PAT), jak reszta sekretów w projekcie (`ModelProviderConfig.ApiKey`,
+  `DatabaseConnectionConfig.ConnectionString`).
+- Integratory inne niż GitLab/Jira — wzorzec ma je obsłużyć bez zmian w silniku, ale nie są
+  pisane teraz.
+
+## 7. Status
+
+⬜ Nie rozpoczęte — projekt zapisany, implementacja w kolejnej sesji.
