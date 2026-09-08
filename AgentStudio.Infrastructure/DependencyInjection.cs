@@ -44,6 +44,8 @@ public static class DependencyInjection
         services.AddScoped<IDatabaseConnectionRepository, DatabaseConnectionRepository>();
         services.AddTransient<IDatabaseQueryExecutor, NpgsqlDatabaseQueryExecutor>();
         services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
+        services.Configure<ConversationRetentionOptions>(config.GetSection("ConversationRetention"));
+        services.AddHostedService<ConversationRetentionService>();
         services.AddScoped<WorkflowRunner>();
         services.AddScoped<AgentService>();
         services.AddSingleton<IApiKeyService, ApiKeyService>();

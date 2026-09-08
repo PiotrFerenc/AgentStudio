@@ -136,7 +136,27 @@ Also back up `appsettings.Production.json` (contains DB password and provider ke
 
 Since phase 2, `Conversations` (chat history) and `Users` (accounts) live in this same database
 — the backup above already covers them, no separate step needed. Conversations have no
-auto-expiry, so this table grows without bound; there is no retention/purge job yet.
+auto-expiry by default, so this table grows without bound unless you opt into the purge job
+below.
+
+### Conversation retention (opt-in)
+
+`ConversationRetentionService` (`AgentStudio.Infrastructure`) periodically deletes conversations
+whose last activity is older than a configured age. **Disabled by default** — the no-TTL,
+survives-a-restart behavior documented above is the default; this only bounds growth for
+operators who choose to turn it on:
+
+```json
+{
+  "ConversationRetention": {
+    "Enabled": true,
+    "RetentionDays": 90
+  }
+}
+```
+
+Runs once at startup and then every 24h (`CheckInterval`, also configurable, not usually needed).
+Deleted conversations are gone — there's no separate archive.
 
 Uploaded RAG documents are **not** in the database — only their chunk text/embeddings are (in
 `DocumentChunks`); the raw files live on the local filesystem at `Documents:StoragePath`

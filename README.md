@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 102 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 104 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -99,7 +99,9 @@ curl -X POST http://localhost:5251/api/agents/$ID/versions/1/conversations \
   -d '{"message":"hello","conversationId":null}'
 ```
 
-`conversationId` utrzymuje wieloturową rozmowę trwale w Postgresie (faza 2) — bez TTL, przeżywa restart aplikacji.
+`conversationId` utrzymuje wieloturową rozmowę trwale w Postgresie (faza 2) — bez TTL domyślnie,
+przeżywa restart aplikacji. Opcjonalny job czyszczący stare rozmowy — `ConversationRetention`
+w DEPLOYMENT.md, wyłączony domyślnie.
 
 ## Widget i publiczny chat
 
@@ -143,7 +145,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 102 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 104 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -152,7 +154,8 @@ dotnet test
 # (SQL injection przeciwko prawdziwemu Postgresowi, read-only guard, obcięcie wyników),
 # analityka (agregacja totals/errors/avg duration, filtr okna czasowego, wykonania w toku),
 # formularze (merge formValues do zmiennych, publish/republish kopiuje MaxSteps+FormFields,
-# FormFields getter toleruje niepoprawny/legacy JSON zamiast rzucać)
+# FormFields getter toleruje niepoprawny/legacy JSON zamiast rzucać), retencja rozmów
+# (purge starych konwersacji, świeże nietknięte)
 ```
 
 ## Wdrożenie (Windows/IIS)
