@@ -139,3 +139,18 @@ public sealed record AnalyticsSummary(
 public sealed record AgentUsage(Guid AgentId, string AgentName, int Executions, int Failed, double AvgDurationSeconds);
 
 public sealed record DailyCount(DateOnly Date, int Executions);
+
+/// <summary>A custom integration with an external system (GitLab, Jira, ...) usable as an
+/// IntegratorNode step (phase 4). Written as code and DI-registered — not configured through
+/// the UI. Implementations live in AgentStudio.Infrastructure/Integrators/.</summary>
+public interface IIntegrator
+{
+    /// <summary>Stable, unique key — the value selected as IntegratorNode.IntegratorName and
+    /// shown in NodePropertiesEditor's picker. E.g. "gitlab.create-issue".</summary>
+    string Name { get; }
+
+    /// <summary>Short description shown next to Name when picking an integrator in the UI.</summary>
+    string Description { get; }
+
+    Task<string> ExecuteAsync(IReadOnlyDictionary<string, string> config, IReadOnlyDictionary<string, string> variables, CancellationToken ct = default);
+}

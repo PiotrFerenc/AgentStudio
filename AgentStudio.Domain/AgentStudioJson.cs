@@ -39,6 +39,7 @@ public sealed class WorkflowNodeConverter : JsonConverter<WorkflowNode>
             "documentSearch" => JsonSerializer.Deserialize<DocumentSearchNode>(raw, options)!,
             "subAgent" => JsonSerializer.Deserialize<SubAgentNode>(raw, options)!,
             "databaseQuery" => JsonSerializer.Deserialize<DatabaseQueryNode>(raw, options)!,
+            "integrator" => JsonSerializer.Deserialize<IntegratorNode>(raw, options)!,
             _ => throw new JsonException($"Unknown node type: {type}")
         };
     }

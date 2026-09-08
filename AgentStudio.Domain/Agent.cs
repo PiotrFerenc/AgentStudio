@@ -238,6 +238,20 @@ public sealed class DatabaseQueryNode : WorkflowNode
     public string ResultVariable { get; set; } = "dbResult";
 }
 
+/// <summary>Calls a registered IIntegrator by name (phase 4) — the extension point for custom
+/// integrations (GitLab, Jira, ...). Config values support {variables.x}/{input} placeholders,
+/// expanded before being handed to the integrator — same rigor as DatabaseQueryNode.Parameters.
+/// New integrators are written as code (IIntegrator implementations, DI-registered), not
+/// configured through this node — the node only selects one by name and supplies per-call
+/// values.</summary>
+public sealed class IntegratorNode : WorkflowNode
+{
+    public override string Type => "integrator";
+    public string IntegratorName { get; set; } = "";
+    public Dictionary<string, string> Config { get; set; } = new();
+    public string ResultVariable { get; set; } = "integratorResult";
+}
+
 public sealed class WorkflowEdge
 {
     public required string Id { get; set; }

@@ -1004,15 +1004,21 @@ Rozbite na trzy części:
   wstrzykniętej `IEnumerable<IIntegrator>` (Name+Description, nigdy sama instancja serwisu do
   Blazor).
 
-## 5. Testy (do realizacji)
+## 5. Testy ✅
 
-- Fake `IIntegrator` w testach `WorkflowRunner` (jak `FakeHttp`, `FakeDatabaseQueryExecutor`) —
-  poprawne przekazanie `Config` (z expandowanymi templatami) i zapis wyniku do zmiennej, czytelny
-  błąd przy nieznanej nazwie integratora.
-- `GitLabCreateIssueIntegrator`/`JiraCreateIssueIntegrator`: albo test przeciwko realnemu
-  publicznemu instance'owi (jeśli dostępny, jak `DatabaseQueryExecutorTests` przeciwko realnemu
-  Postgresowi) — mało prawdopodobne bez sandboxa GitLab/Jira — albo test na poziomie budowania
-  żądania (URL, nagłówki auth, body) bez faktycznego wysłania; decyzja przy implementacji.
+- `WorkflowTests.cs`: `FakeIntegrator` (jak `FakeHttp`/`FakeDatabaseQueryExecutor`) —
+  `IntegratorNode_expands_config_and_writes_result_to_variable` (Config expandowany PRZED
+  dotarciem do integratora, wynik trafia do zmiennej), `IntegratorNode_unknown_name_fails_clearly`.
+- `IntegratorTests.cs` (nowy plik): decyzja z §5 poszła w stronę "test na poziomie budowania
+  żądania" — nie ma dostępnego sandboxa GitLab/Jira, więc `CapturingHandler : HttpMessageHandler`
+  przechwytuje żądanie zamiast je faktycznie wysyłać (ten sam duch co
+  `DatabaseQueryExecutorTests` dowodzące poprawnego bindowania SQL, tu dowodzące poprawnego
+  URL/nagłówków/body). GitLab: URL `.../api/v4/projects/{id}/issues`, nagłówek `PRIVATE-TOKEN`,
+  body zawiera `title`, parsowanie odpowiedzi (`iid`, `web_url`), błąd przy braku `projectId`,
+  błąd przy braku konfiguracji. Jira: URL `.../rest/api/3/issue`, nagłówek `Authorization: Basic
+  base64(email:token)` zdekodowany i zweryfikowany, body zawiera `project.key`/`summary`, błąd
+  przy braku konfiguracji. 120/120 testów zielonych (5 nowych integratory + 2 nowe
+  WorkflowRunner).
 
 ## 6. Poza zakresem (świadomie)
 
@@ -1028,4 +1034,20 @@ Rozbite na trzy części:
 
 ## 7. Status
 
-⬜ Nie rozpoczęte — projekt zapisany, implementacja w kolejnej sesji.
+✅ Zrealizowane. `IntegratorNode`, `IIntegrator`, case w `WorkflowNodeConverter` (dodany od razu,
+pierwsze — bez incydentu tym razem), `GraphMapper` case, `WorkflowRunner` case (lookup po
+nazwie, expand `Config`, standardowy try/catch/`FailStep`), `GitLabCreateIssueIntegrator` +
+`JiraCreateIssueIntegrator` w `AgentStudio.Infrastructure/Integrators/`, DI-rejestracja z
+`Integrators:GitLab`/`Integrators:Jira` w configu. Studio UI: `integrator` w palecie
+`GraphEditor`, edytor w `NodePropertiesEditor` (dropdown zarejestrowanych integratorów +
+edytor Config), `StudioApiClient.ListIntegrators()`.
+
+Zweryfikowane end-to-end na żywym serwerze z prawdziwym Postgresem: agent z węzłem
+`integrator` (`gitlab.create-issue`) utworzony i opublikowany przez REST API — **bez**
+konfiguracji GitLaba uruchomienie zwróciło czysty błąd `"gitlab.create-issue is not
+configured..."` (200, bez zawieszenia — dowód, że case w `WorkflowNodeConverter` faktycznie
+działa, graf deserializuje się poprawnie przez cały pipeline). Po ustawieniu
+`Integrators__GitLab__BaseUrl`/`ApiToken` (env vars, `http://localhost:1` — celowo
+nieosiągalny port) to samo uruchomienie zwróciło `"Connection refused (localhost:1)"` —
+dowód, że binding configu działa i integrator faktycznie próbuje prawdziwego wywołania HTTP,
+nie tylko czyta config. To najsilniejszy dostępny dowód bez prawdziwej instancji GitLaba/Jiry.

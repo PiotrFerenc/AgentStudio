@@ -1,5 +1,6 @@
 using AgentStudio.Application;
 using AgentStudio.Domain;
+using AgentStudio.Infrastructure.Integrators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +52,10 @@ public static class DependencyInjection
         services.AddSingleton<IDatabaseConnectionProvider, DatabaseConnectionProvider>();
         services.AddTransient<IDatabaseQueryExecutor, NpgsqlDatabaseQueryExecutor>();
         services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
+        services.Configure<GitLabIntegratorOptions>(config.GetSection("Integrators:GitLab"));
+        services.AddTransient<IIntegrator, GitLabCreateIssueIntegrator>();
+        services.Configure<JiraIntegratorOptions>(config.GetSection("Integrators:Jira"));
+        services.AddTransient<IIntegrator, JiraCreateIssueIntegrator>();
         services.Configure<ConversationRetentionOptions>(config.GetSection("ConversationRetention"));
         services.AddHostedService<ConversationRetentionService>();
         services.AddScoped<WorkflowRunner>();

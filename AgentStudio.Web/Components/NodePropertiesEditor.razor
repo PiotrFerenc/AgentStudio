@@ -103,6 +103,21 @@ else
             <input type="text" @bind="DbResultVariable" @bind:event="oninput" @bind:after="Changed" />
             <p style="color:#868e96;font-size:.8rem">Result is a JSON array of rows, written to the variable. Read-only connections only allow a single SELECT.</p>
             break;
+        case "integrator":
+            <label>Integrator</label>
+            <select @bind="IntegratorName" @bind:after="Changed">
+                <option value="">-- select --</option>
+                @foreach (var i in AvailableIntegrators ?? new())
+                {
+                    <option value="@i.Name">@i.Name — @i.Description</option>
+                }
+            </select>
+            <label>Config (one per line: name=value, value supports {input}/{variables.x})</label>
+            <textarea @bind="IntegratorConfigText" @bind:event="oninput" @bind:after="Changed" placeholder="projectId=42&#10;title=New issue"></textarea>
+            <label>Result variable</label>
+            <input type="text" @bind="IntegratorResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Custom integration with an external system (GitLab, Jira, ...). New integrators are written as code, not configured here — see CLAUDE.md.</p>
+            break;
         case "end":
             <label>Output template (optional)</label>
             <textarea @bind="EndOutput" @bind:event="oninput" @bind:after="Changed"></textarea>
@@ -124,6 +139,7 @@ else
     [Parameter] public EventCallback<WorkflowNodeDto> NodeChanged { get; set; }
     [Parameter] public List<AgentStudio.Domain.Agent>? AvailableAgents { get; set; }
     [Parameter] public List<AgentStudio.Domain.DatabaseConnectionConfig>? AvailableConnections { get; set; }
+    [Parameter] public List<AgentStudio.Contracts.IntegratorSummary>? AvailableIntegrators { get; set; }
 
     private WorkflowNodeDto? Node => SelectedNode;
 
@@ -178,6 +194,26 @@ else
                 if (idx > 0) dict[trimmed[..idx].Trim()] = trimmed[(idx + 1)..].Trim();
             }
             PutDict("parameters", dict);
+        }
+    }
+
+    private string IntegratorName { get => Get("integratorName"); set => Put("integratorName", value); }
+    private string IntegratorResultVariable { get => Get("resultVariable", "integratorResult"); set => Put("resultVariable", value); }
+
+    private string IntegratorConfigText
+    {
+        get => string.Join("\n", GetDict("config").Select(kv => $"{kv.Key}={kv.Value}"));
+        set
+        {
+            var dict = new Dictionary<string, string>();
+            foreach (var line in value.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                var idx = trimmed.IndexOf('=');
+                if (idx > 0) dict[trimmed[..idx].Trim()] = trimmed[(idx + 1)..].Trim();
+            }
+            PutDict("config", dict);
         }
     }
 

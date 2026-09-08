@@ -84,6 +84,10 @@ Several entity properties follow the same pattern: a `string XyzJson` column plu
 
 `DatabaseConnectionConfig` (phase 3, `databaseQuery` node) is bound from the `DatabaseConnections` config array (`appsettings.json`), not a DB table — `IDatabaseConnectionProvider`/`DatabaseConnectionProvider` is a thin synchronous `IOptions<List<...>>` read, no repository/CRUD. `Provider` defaults to `"postgres"` (the only one implemented); any other value is rejected at query time with a clear error rather than mishandled, since the field exists for a future connector type without a config-shape break.
 
+### Custom integrators (phase 4)
+
+`IntegratorNode { IntegratorName, Config, ResultVariable }` calls a registered `IIntegrator` by name — the same named-lookup shape as `DatabaseQueryNode`/`ConnectionName`. Writing a new integrator (GitLab/Jira are the reference implementations, in `AgentStudio.Infrastructure/Integrators/`) means implementing `IIntegrator` and adding one `services.AddTransient<IIntegrator, YourClass>()` line in `DependencyInjection.cs` — a code change + rebuild/redeploy, deliberately not a runtime plugin system. `WorkflowRunner` gets `IEnumerable<IIntegrator>` and does a plain `.FirstOrDefault(i => i.Name == ...)` lookup, no separate registry. `Config` values are template-expanded (`{input}`/`{variables.x}`) before reaching the integrator, same rigor as `DatabaseQueryNode.Parameters`. Per-integrator secrets (base URL, API token) live in `appsettings.json` under `Integrators:<Name>`, bound via `IOptions<TOptions>` — same split as `DatabaseConnections`.
+
 ### Auth and rate limiting
 
 Cookie auth (`Microsoft.AspNetCore.Authentication.Cookies`) with `PasswordHasher<T>`, not full ASP.NET Core Identity. Roles: Admin/Editor. First run with zero accounts redirects `/` → `/login` → `/setup` to bootstrap the first Admin.

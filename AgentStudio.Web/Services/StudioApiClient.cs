@@ -17,6 +17,7 @@ public sealed class StudioApiClient
     private readonly IDocumentIndexer _documents;
     private readonly IDatabaseConnectionProvider _databaseConnections;
     private readonly IAnalyticsRepository _analytics;
+    private readonly IEnumerable<IIntegrator> _integrators;
 
     public StudioApiClient(
         IAgentRepository agents,
@@ -28,7 +29,8 @@ public sealed class StudioApiClient
         UserService users,
         IDocumentIndexer documents,
         IDatabaseConnectionProvider databaseConnections,
-        IAnalyticsRepository analytics)
+        IAnalyticsRepository analytics,
+        IEnumerable<IIntegrator> integrators)
     {
         _agents = agents;
         _providers = providers;
@@ -40,7 +42,12 @@ public sealed class StudioApiClient
         _documents = documents;
         _databaseConnections = databaseConnections;
         _analytics = analytics;
+        _integrators = integrators;
     }
+
+    /// <summary>Name+description only — never the IIntegrator instance itself.</summary>
+    public List<IntegratorSummary> ListIntegrators() =>
+        _integrators.Select(i => new IntegratorSummary(i.Name, i.Description)).ToList();
 
     public Task<AnalyticsSummary> GetAnalyticsAsync(int days = 30, CancellationToken ct = default) =>
         _analytics.GetSummaryAsync(days, ct);

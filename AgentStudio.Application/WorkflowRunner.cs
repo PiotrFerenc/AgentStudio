@@ -20,6 +20,7 @@ public sealed class WorkflowRunner
     private readonly IAgentRepository _agents;
     private readonly IProviderRepository _providers;
     private readonly IDatabaseQueryExecutor _databaseQuery;
+    private readonly IEnumerable<IIntegrator> _integrators;
 
     /// <summary>Hard cap on agent-calling-agent nesting (phase 3, SubAgentNode) — the only guard
     /// against a cycle across agents (A calls B calls A...), since that can't be seen by the
@@ -33,7 +34,8 @@ public sealed class WorkflowRunner
         IDocumentSearchService documentSearch,
         IAgentRepository agents,
         IProviderRepository providers,
-        IDatabaseQueryExecutor databaseQuery)
+        IDatabaseQueryExecutor databaseQuery,
+        IEnumerable<IIntegrator> integrators)
     {
         _chatClients = chatClients;
         _http = http;
@@ -42,6 +44,7 @@ public sealed class WorkflowRunner
         _agents = agents;
         _providers = providers;
         _databaseQuery = databaseQuery;
+        _integrators = integrators;
     }
 
     public string? LastExecutionId { get; private set; }
@@ -270,6 +273,26 @@ public sealed class WorkflowRunner
                         throw;
                     }
                     current = NextByEdge(graph, query.Id, branch: null);
+                    break;
+                }
+                case IntegratorNode integrator:
+                {
+                    var step = _logWriter.StartStep(log, integrator.Id, integrator.Type);
+                    try
+                    {
+                        var impl = _integrators.FirstOrDefault(i => i.Name == integrator.IntegratorName)
+                            ?? throw new InvalidOperationException($"Integrator '{integrator.IntegratorName}' is not registered.");
+                        var expandedConfig = integrator.Config.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables));
+                        var result = await impl.ExecuteAsync(expandedConfig, variables, ct);
+                        variables[integrator.ResultVariable] = result;
+                        _logWriter.CompleteStep(step, $"integrator {integrator.IntegratorName}: {result.Length} chars");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logWriter.FailStep(step, ex.Message);
+                        throw;
+                    }
+                    current = NextByEdge(graph, integrator.Id, branch: null);
                     break;
                 }
                 case SubAgentNode sub:

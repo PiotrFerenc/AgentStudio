@@ -97,6 +97,27 @@ than being silently mishandled. `/database-connections` in the studio (Admin onl
 list read-only (name/provider/read-only flag, never the connection string) — there's no
 add/delete there, only in config.
 
+If agents use the `integrator` workflow node (phase 4) with the reference GitLab/Jira
+integrators, add an `Integrators` section — same reasoning, deployment config rather than
+admin-panel data:
+
+```json
+{
+  "Integrators": {
+    "GitLab": { "BaseUrl": "https://gitlab.example.com", "ApiToken": "glpat-..." },
+    "Jira": { "BaseUrl": "https://your-domain.atlassian.net", "Email": "bot@example.com", "ApiToken": "..." }
+  }
+}
+```
+
+An integrator whose section is missing/empty throws a clear "not configured" error when a
+workflow reaches its node, rather than the app crashing at startup — you only need the sections
+for integrators an agent's graph actually uses. Writing a new integrator (any external system,
+not just GitLab/Jira) means adding an `IIntegrator` implementation in
+`AgentStudio.Infrastructure/Integrators/` and one `services.AddTransient<IIntegrator, ...>()`
+line in `DependencyInjection.cs` — a code change + redeploy, not a runtime plugin: see
+`PLAN.md`'s phase 4 section for the design rationale.
+
 EF Core migrations run automatically at startup (`MigrateAsync`) — no manual `dotnet ef database update`
 is needed, but the DB user needs DDL rights on first start. The migration is
 `AgentStudio.Infrastructure/Migrations/*_Initial.cs` (Npgsql provider, `jsonb` columns).

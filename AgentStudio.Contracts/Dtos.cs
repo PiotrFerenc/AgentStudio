@@ -14,6 +14,9 @@ public sealed record ProviderDto(Guid Id, string Name, string BaseUrl, string De
 public sealed record ExecutionLogDto(string ExecutionId, string ConversationId, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Error, List<ExecutionStepDto> Steps);
 public sealed record ExecutionStepDto(string NodeId, string NodeType, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Detail, string? Error);
 public sealed record DocumentDto(Guid Id, string FileName, DateTimeOffset CreatedAt, int ChunkCount);
+/// <summary>Name+description only — never the IIntegrator instance itself, so a Blazor
+/// component never holds a reference to the executable service.</summary>
+public sealed record IntegratorSummary(string Name, string Description);
 
 public sealed class WorkflowGraphDto
 {
@@ -79,6 +82,13 @@ public static class GraphMapper
                     TimeoutSeconds = PropInt(n, "timeoutSeconds", 30),
                     ResultVariable = Prop(n, "resultVariable", "dbResult")
                 },
+                "integrator" => new IntegratorNode
+                {
+                    Id = n.Id,
+                    IntegratorName = Prop(n, "integratorName"),
+                    Config = PropDict(n, "config"),
+                    ResultVariable = Prop(n, "resultVariable", "integratorResult")
+                },
                 _ => throw new InvalidOperationException($"Unknown node type: {n.Type}")
             };
             node.Label = n.Label;
@@ -118,6 +128,10 @@ public static class GraphMapper
                     n.Props["connectionName"] = q.ConnectionName; n.Props["query"] = q.Query;
                     n.Props["timeoutSeconds"] = q.TimeoutSeconds; n.Props["resultVariable"] = q.ResultVariable;
                     n.Props["parameters"] = q.Parameters;
+                    break;
+                case IntegratorNode i:
+                    n.Props["integratorName"] = i.IntegratorName; n.Props["resultVariable"] = i.ResultVariable;
+                    n.Props["config"] = i.Config;
                     break;
             }
             dto.Nodes.Add(n);

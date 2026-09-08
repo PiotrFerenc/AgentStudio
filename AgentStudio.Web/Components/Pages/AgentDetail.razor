@@ -96,7 +96,7 @@ else
                 <GraphEditor Graph="_graph" GraphChanged="OnGraphChanged" @ref="_editor" />
             </div>
             <div style="flex:1;min-width:280px">
-                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" />
+                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" />
             </div>
         </div>
     </div>
@@ -245,6 +245,7 @@ else
     private Agent? Agent;
     private List<Agent>? _allAgents;
     private List<DatabaseConnectionConfig>? _allConnections;
+    private List<IntegratorSummary>? _allIntegrators;
     private WorkflowGraphDto _graph = new();
     private WorkflowNodeDto? _selectedNode;
     private GraphEditor? _editor;
@@ -312,6 +313,7 @@ else
         _documents = await Api.ListDocumentsAsync(Id);
         _allAgents = await Api.ListAgentsAsync();
         _allConnections = Api.ListDatabaseConnections();
+        _allIntegrators = Api.ListIntegrators();
     }
 
     private async Task UploadDocumentAsync(InputFileChangeEventArgs e)

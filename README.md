@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 113 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
+└── AgentStudio.Tests          — 120 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -67,7 +67,7 @@ dla wdrożenia.
 
 ## Workflow
 
-Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `parallel`, `join`, `end`.
+Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `integrator`, `parallel`, `join`, `end`.
 
 - Graf wykonuje się sekwencyjnie od Start, z wyjątkiem regionów `parallel`/`join` (fazy 2):
   ≥2 gałęzie z jednego `ParallelNode` biegną współbieżnie, każda z własną kopią zmiennych,
@@ -145,7 +145,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 113 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 120 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -157,7 +157,9 @@ dotnet test
 # FormFields getter toleruje niepoprawny/legacy JSON zamiast rzucać), retencja rozmów
 # (purge starych konwersacji, świeże nietknięte), nieobsługiwany provider konektora DB
 # odrzucany czytelnym błędem, szyfrowanie ApiKey (round-trip, GCM auth-tag chroni przed
-# manipulacją, tolerancja dla wierszy sprzed włączenia szyfrowania)
+# manipulacją, tolerancja dla wierszy sprzed włączenia szyfrowania), custom integratory
+# (config expandowany przed wywołaniem, nieznana nazwa integratora → czytelny błąd,
+# GitLab/Jira: URL/nagłówki/auth/body budowane poprawnie przez CapturingHandler)
 ```
 
 ## Wdrożenie (Windows/IIS)
@@ -264,6 +266,27 @@ aktywni agenci, średni czas trwania) za ostatnie 30 dni, wykres słupkowy wykon
 tabela z rankingiem agentów wg liczby wykonań. Agregacje LINQ nad istniejącym `ExecutionLog`
 — żadnej nowej tabeli śledzącej, żadnej biblioteki wykresów (SVG ręcznie, jak `GraphEditor`).
 
+## Custom integratory (faza 4)
+
+Węzeł `integrator` wywołuje zarejestrowanego `IIntegrator` po nazwie — rozszerzalność
+deweloperska, nie no-code UI. Nowy integrator to nowa klasa w
+`AgentStudio.Infrastructure/Integrators/` implementująca `IIntegrator`, zarejestrowana w DI
+(`services.AddTransient<IIntegrator, TwojaKlasa>()`) — po rebuildzie/redeployu pojawia się w
+dropdownie węzła `integrator`, dokładnie jak wybór connection przy `databaseQuery`. Bez
+dynamicznego ładowania pluginów w runtime.
+
+Referencyjne implementacje: `gitlab.create-issue`, `jira.create-issue`. Base URL/token API w
+`appsettings.json` (`Integrators:GitLab`, `Integrators:Jira`) — konfiguracja wdrożeniowa, nie
+dane per-wywołanie. Per-wywołanie (projekt, tytuł, opis) — pole `Config` na węźle, wartości
+wspierają `{input}`/`{variables.x}`.
+
+```json
+"Integrators": {
+  "GitLab": { "BaseUrl": "https://gitlab.example.com", "ApiToken": "glpat-..." },
+  "Jira": { "BaseUrl": "https://twoja-domena.atlassian.net", "Email": "bot@example.com", "ApiToken": "..." }
+}
+```
+
 ## Zakres fazy 3 (zrealizowany)
 
 - ✅ Sub-agenci (`subAgent`, jednorazowe wywołanie, depth-guard cyklu)
@@ -274,3 +297,10 @@ tabela z rankingiem agentów wg liczby wykonań. Agregacje LINQ nad istniejącym
 Pełny plan: `PLAN.md` (sekcja "Plan dla AgentStudio — faza 3").
 
 Poza zakresem (świadomie pominięte): Teams/Slack.
+
+## Zakres fazy 4 (zrealizowany)
+
+- ✅ Custom integratory (`integrator`, `IIntegrator`, DI, referencyjne GitLab/Jira)
+
+Poza zakresem (świadomie pominięte): runtime plugin loading, no-code UI do definiowania
+integratorów, OAuth per-użytkownik. Pełny plan: `PLAN.md` (sekcja "Plan dla AgentStudio — faza 4").

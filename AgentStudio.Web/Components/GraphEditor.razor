@@ -186,7 +186,7 @@
     public WorkflowNodeDto? SelectedNode { get; private set; }
     private WorkflowEdgeDto? _selectedEdge;
 
-    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "parallel", "join", "end" };
+    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "integrator", "parallel", "join", "end" };
     private const double NodeW = 140, NodeH = 56, DragThreshold = 4;
 
     private ElementReference _canvasRef;
@@ -449,6 +449,7 @@
             case "documentSearch": node.Props["query"] = "{input}"; node.Props["topK"] = 3; node.Props["resultVariable"] = "searchResult"; break;
             case "subAgent": node.Props["targetAgentId"] = ""; node.Props["inputTemplate"] = "{input}"; node.Props["resultVariable"] = "subAgentResult"; break;
             case "databaseQuery": node.Props["connectionName"] = ""; node.Props["query"] = ""; node.Props["timeoutSeconds"] = 30; node.Props["resultVariable"] = "dbResult"; break;
+            case "integrator": node.Props["integratorName"] = ""; node.Props["resultVariable"] = "integratorResult"; break;
             case "end": node.Props["outputTemplate"] = ""; break;
         }
         Graph.Nodes.Add(node);
