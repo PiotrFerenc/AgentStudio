@@ -23,15 +23,16 @@ public static class NodeCatalog
     {
         new("start", "Start", "Entry point of the workflow — every run begins here. No configurable properties.", []),
 
-        new("prompt", "Prompt", "Sends a prompt to the agent's LLM and streams the reply back to the caller.", [
+        new("prompt", "Prompt", "Sends a prompt to the agent's LLM and saves the full reply to a variable. Not shown to the caller by itself — reference the result variable from an End node's Output template to make it visible.", [
             new("promptTemplate", "The message sent to the LLM. Supports {input} and {variables.name} placeholders."),
             new("resultVariable", "Variable name the LLM's full reply is saved to."),
             new("providerName", "Optional — call a different provider than the agent's default for just this node. Blank uses the agent's provider."),
             new("modelName", "Optional — use a different model on the (possibly overridden) provider. Blank uses the agent's model."),
         ]),
 
-        new("message", "Message", "Emits fixed (or templated) text to the output — no LLM call.", [
-            new("text", "Text emitted as-is, after template expansion. Supports {input}/{variables.x}."),
+        new("message", "Message", "Sets a variable to fixed (or templated) text — no LLM call. Not shown to the caller by itself — reference the result variable from an End node's Output template to make it visible.", [
+            new("text", "Text saved as-is, after template expansion. Supports {input}/{variables.x}."),
+            new("resultVariable", "Variable name this text is saved to."),
         ]),
 
         new("condition", "Condition", "Branches the workflow by comparing two values. Requires exactly two outgoing edges: one 'true', one 'false'.", [
@@ -107,8 +108,8 @@ public static class NodeCatalog
 
         new("join", "Join", "Where a parallel split's branches reconverge, in the order they were connected. Continue the workflow from here.", []),
 
-        new("end", "End", "Terminates this path through the workflow. A run can have multiple End nodes; whichever is reached first ends that path.", [
-            new("outputTemplate", "Optional final text for this path — supports {input}/{variables.x}. Left blank, the path ends with whatever was last emitted."),
+        new("end", "End", "Terminates this path through the workflow. This is the ONLY place a run's visible output comes from — no other node emits live. A run can have multiple End nodes; whichever is reached first ends that path.", [
+            new("outputTemplate", "The path's entire visible output — supports {input}/{variables.x}. Left blank, this path produces no visible output at all, even if earlier nodes (prompt, message, ...) set variables."),
         ]),
     }.ToDictionary(n => n.Type);
 

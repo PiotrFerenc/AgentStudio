@@ -5,14 +5,16 @@ namespace AgentStudio.Application;
 
 /// <summary>What a leaf node executor needs to do its work — the ambient run state any of them
 /// might touch. Not every field is used by every executor (only PromptNode touches
-/// Conversation/Emit) but a shared context keeps the INodeExecutor contract uniform instead of
-/// each implementation declaring its own bespoke parameter list.</summary>
+/// Conversation) but a shared context keeps the INodeExecutor contract uniform instead of each
+/// implementation declaring its own bespoke parameter list. No ChunkSink here, deliberately —
+/// no leaf node emits live. The run's only visible output is an End node's OutputTemplate;
+/// everything else writes to a variable and is only visible if something downstream (usually
+/// the End node) references it.</summary>
 internal sealed record NodeExecutionContext(
     Dictionary<string, string> Variables,
     ConversationState Conversation,
     Agent Agent,
     ModelProviderConfig Provider,
-    ChunkSink Emit,
     CancellationToken Ct);
 
 /// <summary>One "leaf" node's execution — work that always continues to its single unconditional
@@ -186,12 +188,12 @@ internal sealed class PromptNodeExecutor : NodeExecutor<PromptNode>
         var provider = await ProviderOverride.ResolveAsync(node.ProviderName, context.Provider, _providers, context.Ct);
         var modelName = string.IsNullOrWhiteSpace(node.ModelName) ? context.Agent.ModelName : node.ModelName;
         var client = _chatClients.Create(provider, modelName);
+        // Buffered only, not streamed live — the run's final output is exclusively whatever
+        // an End node's OutputTemplate says (see NodeExecutionContext's doc comment). Reference
+        // {variables.<ResultVariable>} from an End node to make this reply visible.
         var buffer = new StringBuilder();
         await foreach (var chunk in client.StreamReplyAsync(messages, context.Ct))
-        {
             buffer.Append(chunk);
-            await context.Emit(chunk, context.Ct);
-        }
 
         context.Variables[node.ResultVariable] = buffer.ToString();
         lock (context.Conversation) context.Conversation.Messages.Add(new ChatMessage { Role = "assistant", Content = buffer.ToString() });

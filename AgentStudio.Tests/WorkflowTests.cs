@@ -317,8 +317,33 @@ public class WorkflowRunnerTests
     }
 
     [Fact]
-    public async Task Prompt_node_streams_llm_response()
+    public async Task Prompt_node_writes_llm_response_to_a_variable_and_end_makes_it_visible()
     {
+        // Prompt no longer emits live — its reply is only visible in the run's output because
+        // End's OutputTemplate references the same variable.
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new PromptNode { Id = "p", ResultVariable = "r" });
+        graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.r}" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "p" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "p", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "hi"))
+            output += chunk;
+
+        Assert.Equal("Hello there!", output);
+        Assert.Equal("Hello there!", conversation.Variables["r"]);
+    }
+
+    [Fact]
+    public async Task Prompt_node_without_an_End_output_template_produces_no_visible_output()
+    {
+        // The other half of the contract above: a variable a prompt/message node sets is inert
+        // until something (usually End's OutputTemplate) references it.
         var graph = new WorkflowGraph();
         graph.Nodes.Add(new StartNode { Id = "s" });
         graph.Nodes.Add(new PromptNode { Id = "p", ResultVariable = "r" });
@@ -333,8 +358,8 @@ public class WorkflowRunnerTests
         await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "hi"))
             output += chunk;
 
-        Assert.Equal("Hello there!", output);
-        Assert.Equal("Hello there!", conversation.Variables["r"]);
+        Assert.Equal("", output);
+        Assert.Equal("Hello there!", conversation.Variables["r"]); // the reply is stored, just not shown
     }
 
     [Fact]
@@ -499,10 +524,10 @@ public class WorkflowRunnerTests
         graph.Nodes.Add(new StartNode { Id = "s" });
         graph.Nodes.Add(new VariableNode { Id = "v", Name = "status", Value = "approved" });
         graph.Nodes.Add(new ConditionNode { Id = "c", Left = "variables.status", Operator = ConditionOperator.Equals, Right = "approved" });
-        graph.Nodes.Add(new MessageNode { Id = "mt", Text = "YES" });
-        graph.Nodes.Add(new MessageNode { Id = "mf", Text = "NO" });
-        graph.Nodes.Add(new EndNode { Id = "et" });
-        graph.Nodes.Add(new EndNode { Id = "ef" });
+        graph.Nodes.Add(new MessageNode { Id = "mt", Text = "YES", ResultVariable = "msg" });
+        graph.Nodes.Add(new MessageNode { Id = "mf", Text = "NO", ResultVariable = "msg" });
+        graph.Nodes.Add(new EndNode { Id = "et", OutputTemplate = "{variables.msg}" });
+        graph.Nodes.Add(new EndNode { Id = "ef", OutputTemplate = "{variables.msg}" });
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "v" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "c" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "c", TargetNodeId = "mt", Branch = "true" });
@@ -585,12 +610,14 @@ public class WorkflowRunnerTests
         var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
-        var output = "";
-        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
-            output += chunk;
+        // No node emits live any more, so a per-iteration "tick" mark in the output isn't
+        // observable — the loop's real, checkable effect is the counter variable it leaves
+        // behind. (An emitted "..." accumulating across iterations was never really coherent
+        // under the "only End's OutputTemplate is visible" model anyway — each iteration would
+        // just overwrite the same variable, not append to it.)
+        await foreach (var _ in runner.RunAsync(agent, version, provider, conversation, "go")) { }
 
-        Assert.Equal("...", output); // three loop iterations
-        Assert.Equal("3", conversation.Variables["counter"]);
+        Assert.Equal("3", conversation.Variables["counter"]); // three loop iterations
     }
 
     [Fact]
@@ -618,17 +645,17 @@ public class WorkflowRunnerTests
     [Fact]
     public async Task Parallel_branches_run_and_merge_at_join()
     {
-        // start -> split --> http(sets "h", no visible text) ---\
-        //                \-> prompt(LLM, streams + sets "p")  ---> join -> end (no template)
-        // Http never emits visible text, so the only output is the Prompt branch's streamed
-        // reply — proving both branches ran (via variables) without double-counting output.
+        // start -> split --> http(sets "h") ---\
+        //                \-> prompt(LLM, sets "p") ---> join -> end (references "p")
+        // Neither branch emits live any more — End's OutputTemplate is what proves the Prompt
+        // branch's reply survived the join, while "h" proves the Http branch ran too.
         var graph = new WorkflowGraph();
         graph.Nodes.Add(new StartNode { Id = "s" });
         graph.Nodes.Add(new ParallelNode { Id = "split" });
         graph.Nodes.Add(new HttpNode { Id = "h", Method = "GET", Url = "https://api.example.com/x", ResultVariable = "h" });
         graph.Nodes.Add(new PromptNode { Id = "p", ResultVariable = "p" });
         graph.Nodes.Add(new JoinNode { Id = "join" });
-        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.p}" });
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "split" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "split", TargetNodeId = "h" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "split", TargetNodeId = "p" });
@@ -650,32 +677,12 @@ public class WorkflowRunnerTests
         Assert.Equal("Hello there!", conversation.Variables["p"]);
     }
 
-    [Fact]
-    public async Task Parallel_output_is_flushed_in_declared_edge_order_not_interleaved()
-    {
-        var graph = new WorkflowGraph();
-        graph.Nodes.Add(new StartNode { Id = "s" });
-        graph.Nodes.Add(new ParallelNode { Id = "split" });
-        graph.Nodes.Add(new MessageNode { Id = "a", Text = "A" });
-        graph.Nodes.Add(new MessageNode { Id = "b", Text = "B" });
-        graph.Nodes.Add(new JoinNode { Id = "join" });
-        graph.Nodes.Add(new EndNode { Id = "e" });
-        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "split" });
-        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "split", TargetNodeId = "a" });
-        graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "split", TargetNodeId = "b" });
-        graph.Edges.Add(new WorkflowEdge { Id = "4", SourceNodeId = "a", TargetNodeId = "join" });
-        graph.Edges.Add(new WorkflowEdge { Id = "5", SourceNodeId = "b", TargetNodeId = "join" });
-        graph.Edges.Add(new WorkflowEdge { Id = "6", SourceNodeId = "join", TargetNodeId = "e" });
-
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
-        var (agent, version, provider, conversation) = Fixture(graph);
-
-        var output = "";
-        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
-            output += chunk;
-
-        Assert.Equal("AB", output); // declared order (edge "2" before edge "3"), never "BA" or interleaved
-    }
+    // Parallel_output_is_flushed_in_declared_edge_order_not_interleaved removed: it proved
+    // ParallelNode flushed each branch's *emitted* text in declared edge order. Now that no leaf
+    // node emits live (only End's OutputTemplate is ever visible), there's no emitted text left
+    // for that flush to order — the underlying mechanism this test exercised no longer runs.
+    // Parallel_merge_conflict_last_declared_branch_wins below covers the variable-merge-order
+    // guarantee that's still relevant.
 
     [Fact]
     public async Task Parallel_merge_conflict_last_declared_branch_wins()
@@ -738,8 +745,8 @@ public class WorkflowRunnerTests
     {
         var subGraph = new WorkflowGraph();
         subGraph.Nodes.Add(new StartNode { Id = "s" });
-        subGraph.Nodes.Add(new MessageNode { Id = "m", Text = "hi from B" });
-        subGraph.Nodes.Add(new EndNode { Id = "e" });
+        subGraph.Nodes.Add(new MessageNode { Id = "m", Text = "hi from B", ResultVariable = "msg" });
+        subGraph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.msg}" });
         subGraph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "m" });
         subGraph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "m", TargetNodeId = "e" });
         var (subAgent, _) = PublishedAgent("B", "p", subGraph);
@@ -1170,6 +1177,6 @@ public class WorkflowRunnerTests
 
         var result = await runner.DebugNodeAsync(agent, provider, graph, "m", new Dictionary<string, string>());
 
-        Assert.Equal("hi", result.EmittedText);
+        Assert.Equal("hi", result.Variables["messageResult"]);
     }
 }

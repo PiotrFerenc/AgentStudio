@@ -41,6 +41,9 @@ else
             <label>Message text</label>
             <FieldHint Text="@Hint("text")" />
             <textarea @bind="MessageText" @bind:event="oninput" @bind:after="Changed"></textarea>
+            <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
+            <input type="text" @bind="MessageResultVariable" @bind:event="oninput" @bind:after="Changed" />
             break;
         case "condition":
             <label>Left</label>
@@ -328,6 +331,7 @@ else
     private string PromptProviderName { get => Get("providerName"); set => Put("providerName", value); }
     private string PromptModelName { get => Get("modelName"); set => Put("modelName", value); }
     private string MessageText { get => Get("text"); set => Put("text", value); }
+    private string MessageResultVariable { get => Get("resultVariable", "messageResult"); set => Put("resultVariable", value); }
     private string CondLeft { get => Get("left"); set => Put("left", value); }
     private string CondOperator { get => Get("operator", "Equals"); set => Put("operator", value); }
     private string CondRight { get => Get("right"); set => Put("right", value); }

@@ -267,8 +267,8 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
         var (id, apiKey) = await CreateAgentAsync("stream-flow", "provider-stream");
         var graph = new WorkflowGraphDto();
         graph.Nodes.Add(new WorkflowNodeDto { Id = "s", Type = "start" });
-        graph.Nodes.Add(new WorkflowNodeDto { Id = "m", Type = "message", Props = new() { ["text"] = "Hello streaming world" } });
-        graph.Nodes.Add(new WorkflowNodeDto { Id = "e", Type = "end" });
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "m", Type = "message", Props = new() { ["text"] = "Hello streaming world", ["resultVariable"] = "msg" } });
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "e", Type = "end", Props = new() { ["outputTemplate"] = "{variables.msg}" } });
         graph.Edges.Add(new WorkflowEdgeDto { Id = "1", SourceNodeId = "s", TargetNodeId = "m" });
         graph.Edges.Add(new WorkflowEdgeDto { Id = "2", SourceNodeId = "m", TargetNodeId = "e" });
         await _client.PutAsJsonAsync($"/api/agents/{id}/draft", new UpdateDraftRequest(graph));

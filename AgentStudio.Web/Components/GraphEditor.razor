@@ -506,7 +506,7 @@
         switch (type)
         {
             case "prompt": node.Props["promptTemplate"] = ""; node.Props["resultVariable"] = "llmResult"; break;
-            case "message": node.Props["text"] = ""; break;
+            case "message": node.Props["text"] = ""; node.Props["resultVariable"] = "messageResult"; break;
             case "condition": node.Props["left"] = "variables.status"; node.Props["operator"] = "Equals"; node.Props["right"] = ""; break;
             case "http": node.Props["method"] = "GET"; node.Props["url"] = ""; node.Props["resultVariable"] = "httpResult"; node.Props["timeoutSeconds"] = 30; node.Props["retries"] = 0; break;
             case "variable": node.Props["name"] = "myVar"; node.Props["value"] = ""; break;

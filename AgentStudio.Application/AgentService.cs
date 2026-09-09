@@ -243,7 +243,9 @@ public sealed class AgentService
         var graph = new WorkflowGraph();
         graph.Nodes.Add(new StartNode { Id = "start", Label = "Start", X = 100, Y = 200 });
         graph.Nodes.Add(new PromptNode { Id = "prompt1", Label = "Assistant", X = 350, Y = 200, PromptTemplate = "", ResultVariable = "llmResult" });
-        graph.Nodes.Add(new EndNode { Id = "end", Label = "End", X = 600, Y = 200 });
+        // OutputTemplate is required here — no node emits live anymore, this is the only place
+        // the run's visible output comes from.
+        graph.Nodes.Add(new EndNode { Id = "end", Label = "End", X = 600, Y = 200, OutputTemplate = "{variables.llmResult}" });
         graph.Edges.Add(new WorkflowEdge { Id = "e1", SourceNodeId = "start", TargetNodeId = "prompt1" });
         graph.Edges.Add(new WorkflowEdge { Id = "e2", SourceNodeId = "prompt1", TargetNodeId = "end" });
         return graph;

@@ -229,8 +229,11 @@ public sealed class EndNode : WorkflowNode
 public sealed class MessageNode : WorkflowNode
 {
     public override string Type => "message";
-    /// <summary>Static message text appended to the assistant output. Supports {variables.x} placeholders.</summary>
+    /// <summary>Static message text. Supports {variables.x} placeholders. Written to
+    /// ResultVariable, not emitted live — reference it from an End node's OutputTemplate to
+    /// make it visible in the run's final output.</summary>
     public string Text { get; set; } = "";
+    public string ResultVariable { get; set; } = "messageResult";
 }
 
 public sealed class PromptNode : WorkflowNode

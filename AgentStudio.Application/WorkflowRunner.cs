@@ -300,8 +300,8 @@ public sealed class WorkflowRunner
                 {
                     var step = _logWriter.StartStep(log, message.Id, message.Type);
                     var text = ExpandTemplate(message.Text, variables);
-                    _logWriter.CompleteStep(step);
-                    await emit(text, ct);
+                    variables[message.ResultVariable] = text;
+                    _logWriter.CompleteStep(step, $"{message.ResultVariable} set");
                     current = NextByEdge(graph, message.Id, branch: null);
                     break;
                 }
@@ -405,7 +405,7 @@ public sealed class WorkflowRunner
                     if (!_executorsByType.TryGetValue(current.GetType(), out var executor))
                         throw new InvalidOperationException($"Unsupported node type: {current.Type}");
                     var node = current;
-                    var context = new NodeExecutionContext(variables, conversation, agent, provider, emit, ct);
+                    var context = new NodeExecutionContext(variables, conversation, agent, provider, ct);
                     await RunStepAsync(log, node, () => executor.ExecuteAsync(node, context));
                     current = NextByEdge(graph, node.Id, branch: null);
                     break;

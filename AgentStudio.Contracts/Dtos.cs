@@ -59,7 +59,7 @@ public static class GraphMapper
             {
                 "start" => new StartNode { Id = n.Id },
                 "end" => new EndNode { Id = n.Id, OutputTemplate = Prop(n, "outputTemplate") },
-                "message" => new MessageNode { Id = n.Id, Text = Prop(n, "text") },
+                "message" => new MessageNode { Id = n.Id, Text = Prop(n, "text"), ResultVariable = Prop(n, "resultVariable", "messageResult") },
                 "prompt" => new PromptNode { Id = n.Id, PromptTemplate = Prop(n, "promptTemplate"), ResultVariable = Prop(n, "resultVariable", "llmResult"), ProviderName = Prop(n, "providerName"), ModelName = Prop(n, "modelName") },
                 "condition" => new ConditionNode { Id = n.Id, Left = Prop(n, "left"), Right = Prop(n, "right"), Operator = ParseOperator(Prop(n, "operator", "Equals")) },
                 "http" => new HttpNode
@@ -144,7 +144,7 @@ public static class GraphMapper
             switch (node)
             {
                 case EndNode e: n.Props["outputTemplate"] = e.OutputTemplate; break;
-                case MessageNode m: n.Props["text"] = m.Text; break;
+                case MessageNode m: n.Props["text"] = m.Text; n.Props["resultVariable"] = m.ResultVariable; break;
                 case PromptNode p:
                     n.Props["promptTemplate"] = p.PromptTemplate; n.Props["resultVariable"] = p.ResultVariable;
                     n.Props["providerName"] = p.ProviderName; n.Props["modelName"] = p.ModelName;
