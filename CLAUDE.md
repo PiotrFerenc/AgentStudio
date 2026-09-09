@@ -126,6 +126,10 @@ The studio UI and `/api/...` require a logged-in session. The runtime agent endp
 
 `/api` and `/auth` are both excluded from `UseStatusCodePagesWithReExecute` — re-executing their error responses against the Razor `/not-found` page turns clean status codes (401/404/429) into misleading ones (400/404) because that page's POST handling expects antiforgery-validated form data, not a JSON body or a rate-limiter rejection.
 
+### AgentDetail page tabs
+
+`AgentDetail.razor` grew to ~8 stacked `<div class="panel">` blocks (settings, share, graph, docs, form+preview, test chat, logs) as features accumulated across phases — became unreadable as one long scroll. Restructured into a plain `_activeTab` string field + `@if (_activeTab == "...")` wrapping each existing panel block (no inner logic touched, purely a visibility gate) — tabs: `build` (default, graph+node properties), `overview` (name/status/publish/max steps/schedule/env vars/links/versions/diff/share), `form` (form builder+preview), `chat` (test chat), `docs`, `logs`. Hand-rolled tab strip (`.agent-tabs`/`.agent-tab-btn` in the page's own `<style>` block), no new component/library — same "smallest thing" choice as everywhere else in this project. Adding a new panel to this page: put it behind an existing tab if it fits thematically, or add a new `_activeTab` value + tab button rather than appending another always-visible panel to the bottom.
+
 ### Graph editor
 
 `AgentStudio.Web/Components/GraphEditor.razor` is a hand-rolled SVG canvas (pan/zoom via CSS `transform`, mouse-event-based node dragging and edge linking) — no diagram/charting library in this project, by design (see `Analytics.razor`'s hand-drawn SVG bar charts for the same pattern applied elsewhere). `_canvasLeft`/`_canvasTop` (from a JS interop `getBoundingClientRect()` call) are re-measured at the start of every drag/link/pan gesture, not just once on first render, since the page can scroll between renders.

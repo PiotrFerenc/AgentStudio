@@ -38,6 +38,20 @@ else
                 <span style="margin-left:1rem">@_publishMessage</span>
             }
         </p>
+    </div>
+
+    <div class="agent-tabs">
+        <button class="agent-tab-btn @(_activeTab == "build" ? "active" : "")" @onclick='() => _activeTab = "build"'>Build</button>
+        <button class="agent-tab-btn @(_activeTab == "overview" ? "active" : "")" @onclick='() => _activeTab = "overview"'>Overview</button>
+        <button class="agent-tab-btn @(_activeTab == "form" ? "active" : "")" @onclick='() => _activeTab = "form"'>Form</button>
+        <button class="agent-tab-btn @(_activeTab == "chat" ? "active" : "")" @onclick='() => _activeTab = "chat"'>Test Chat</button>
+        <button class="agent-tab-btn @(_activeTab == "docs" ? "active" : "")" @onclick='() => _activeTab = "docs"'>Documents</button>
+        <button class="agent-tab-btn @(_activeTab == "logs" ? "active" : "")" @onclick='() => _activeTab = "logs"'>Logs</button>
+    </div>
+
+    @if (_activeTab == "overview")
+    {
+    <div class="panel">
         <p>
             <label style="display:inline;margin:0" title="Safety cap on total node executions per run — also the loop-iteration guard.">Max steps</label>
             <input type="number" min="1" style="width:6em;display:inline-block;margin:0 0 0 .4rem" @bind="_maxSteps" @bind:event="oninput" />
@@ -200,7 +214,10 @@ else
             }
         </div>
     }
+    }
 
+    @if (_activeTab == "build")
+    {
     <div class="panel">
         <h2>Workflow Graph</h2>
         <div style="display:flex;gap:1rem;flex-wrap:wrap">
@@ -215,7 +232,10 @@ else
             </div>
         </div>
     </div>
+    }
 
+    @if (_activeTab == "docs")
+    {
     <div class="panel">
         <h2>Documents (RAG)</h2>
         <p style="color:#868e96;font-size:.85rem">Plain text only (.txt, .md, .csv, .json, .log). Needs an embedding model on this agent's provider — set one on the Providers page.</p>
@@ -249,7 +269,10 @@ else
             <p class="error-list">@_documentError</p>
         }
     </div>
+    }
 
+    @if (_activeTab == "form")
+    {
     <div class="panel">
         <h2>Form (alternative to chat)</h2>
         <p style="color:#868e96;font-size:.85rem">Named fields become <code>{variables.name}</code> in the graph. Published together with the graph — publish a new version to expose changes at <code>/run/{agentId}/{version}</code>.</p>
@@ -445,7 +468,10 @@ else
             }
         }
     </div>
+    }
 
+    @if (_activeTab == "chat")
+    {
     <div class="panel">
         <h2>Test Chat (draft)</h2>
         <div class="chat-box">
@@ -495,7 +521,10 @@ else
             <button class="primary" style="margin-top:0" @onclick="SendAsync" disabled="@_sending">Send</button>
         </div>
     </div>
+    }
 
+    @if (_activeTab == "logs")
+    {
     <div class="panel">
         <h2>Execution Logs</h2>
         <table>
@@ -538,7 +567,31 @@ else
             </tbody>
         </table>
     </div>
+    }
 }
+
+<style>
+    .agent-tabs {
+        display: flex;
+        gap: .25rem;
+        margin: .75rem 0 1rem;
+        border-bottom: 1px solid var(--hairline, #e5e4e0);
+        flex-wrap: wrap;
+    }
+    .agent-tab-btn {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: .55rem .9rem;
+        font-size: .85rem;
+        font-weight: 600;
+        color: var(--ink-3, #8b8a92);
+        cursor: pointer;
+        margin-bottom: -1px;
+    }
+    .agent-tab-btn:hover { color: var(--ink-1, #16161a); }
+    .agent-tab-btn.active { color: var(--accent, #3b5bdb); border-bottom-color: var(--accent, #3b5bdb); }
+</style>
 
 @code {
     [Parameter] public Guid Id { get; set; }
@@ -546,6 +599,7 @@ else
 
     private Agent? Agent;
     private bool _canEdit;
+    private string _activeTab = "build";
     private bool _canManageSharing;
     private string _newCollaboratorUsername = "";
     private string? _shareError;
