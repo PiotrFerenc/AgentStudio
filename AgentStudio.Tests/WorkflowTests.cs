@@ -767,4 +767,87 @@ public class WorkflowRunnerTests
         Assert.Contains("[error]", output);
         Assert.Contains("not registered", output);
     }
+
+    [Fact]
+    public async Task DebugNodeAsync_runs_one_node_against_sample_variables()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new JsonParseNode { Id = "j", Input = "{variables.apiResponse}", Path = "user.name", ResultVariable = "userName" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "j" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "j", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, _, provider, _) = Fixture(graph);
+        var sample = new Dictionary<string, string> { ["apiResponse"] = """{"user":{"name":"Anna"}}""" };
+
+        var result = await runner.DebugNodeAsync(agent, provider, graph, "j", sample);
+
+        Assert.True(result.Success);
+        Assert.Equal("Anna", result.Variables["userName"]);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public async Task DebugNodeAsync_stops_after_the_target_node_even_when_it_has_downstream_edges()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new VariableNode { Id = "v", Name = "x", Value = "1" });
+        graph.Nodes.Add(new MessageNode { Id = "m", Text = "should not run" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "v" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "m" });
+        graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "m", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, _, provider, _) = Fixture(graph);
+
+        var result = await runner.DebugNodeAsync(agent, provider, graph, "v", new Dictionary<string, string>());
+
+        Assert.True(result.Success);
+        Assert.Equal("1", result.Variables["x"]);
+        Assert.Equal("", result.EmittedText); // the downstream MessageNode never ran
+    }
+
+    [Fact]
+    public async Task DebugNodeAsync_reports_node_failure_without_throwing()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new JsonParseNode { Id = "j", Input = "not json", Path = "a", ResultVariable = "r" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "j" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "j", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, _, provider, _) = Fixture(graph);
+
+        var result = await runner.DebugNodeAsync(agent, provider, graph, "j", new Dictionary<string, string>());
+
+        Assert.False(result.Success);
+        Assert.Contains("not valid JSON", result.Error);
+    }
+
+    [Theory]
+    [InlineData("s", "start")]
+    [InlineData("start-parallel", "parallel")]
+    public async Task DebugNodeAsync_rejects_structural_node_types(string nodeId, string expectedTypeInMessage)
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new ParallelNode { Id = "start-parallel" });
+        graph.Nodes.Add(new JoinNode { Id = "join1" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "start-parallel" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "start-parallel", TargetNodeId = "join1" });
+        graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "join1", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, _, provider, _) = Fixture(graph);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.DebugNodeAsync(agent, provider, graph, nodeId, new Dictionary<string, string>()));
+        Assert.Contains(expectedTypeInMessage, ex.Message);
+    }
 }

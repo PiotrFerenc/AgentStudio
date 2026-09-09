@@ -54,7 +54,33 @@ else if (_agent is not null)
             @foreach (var m in _messages)
             {
                 <div class="chat-bubble-row @m.Role">
-                    <div class="chat-bubble @m.Role">@m.Content</div>
+                    <div class="chat-bubble @m.Role">
+                        @if (m.Role == "assistant" && DatabaseResultTable.TryParse(m.Content, out var _tCols, out var _tRows, out _))
+                        {
+                            @if (_tRows.Count == 0)
+                            {
+                                <span>No rows.</span>
+                            }
+                            else
+                            {
+                                <div class="chat-result-table-wrap">
+                                    <table class="chat-result-table">
+                                        <thead><tr>@foreach (var c in _tCols) { <th>@c</th> }</tr></thead>
+                                        <tbody>
+                                            @foreach (var row in _tRows)
+                                            {
+                                                <tr>@foreach (var c in _tCols) { <td>@(row.TryGetValue(c, out var v) ? v : "")</td> }</tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            @m.Content
+                        }
+                    </div>
                 </div>
             }
             @if (_streaming.Length > 0 || _sending)

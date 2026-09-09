@@ -134,4 +134,16 @@ public sealed class StudioApiClient
     /// <summary>Read-only — connections are defined in appsettings.json ("DatabaseConnections"),
     /// not editable at runtime.</summary>
     public List<DatabaseConnectionConfig> ListDatabaseConnections() => _databaseConnections.List();
+
+    /// <summary>Runs one node from the (possibly unsaved) draft graph against sample variables —
+    /// the graph editor's "Test node" panel. Uses whatever graph the caller currently has open,
+    /// not the persisted draft, so it reflects unsaved edits too.</summary>
+    public async Task<NodeDebugResult> DebugNodeAsync(Guid agentId, WorkflowGraphDto graphDto, string nodeId, Dictionary<string, string> sampleVariables, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        var provider = await _providers.GetByNameAsync(agent.ModelProviderName, ct)
+            ?? throw new InvalidOperationException($"Provider '{agent.ModelProviderName}' is not configured.");
+        var graph = GraphMapper.ToDomain(graphDto);
+        return await _runner.DebugNodeAsync(agent, provider, graph, nodeId, sampleVariables, ct);
+    }
 }

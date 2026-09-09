@@ -122,7 +122,32 @@ else if (_agent is not null && _version is not null)
             {
                 <div class="run-result">
                     <span class="run-result-label">Result</span>
-                    @if (_version.FormResultMarkdown && !_result.Contains("[error]"))
+                    @if (DatabaseResultTable.TryParse(_result, out var _tableColumns, out var _tableRows, out var _tableTruncated))
+                    {
+                        @if (_tableRows.Count == 0)
+                        {
+                            <p class="run-help">No rows.</p>
+                        }
+                        else
+                        {
+                            <div class="run-result-table-wrap">
+                                <table class="run-result-table">
+                                    <thead><tr>@foreach (var c in _tableColumns) { <th>@c</th> }</tr></thead>
+                                    <tbody>
+                                        @foreach (var row in _tableRows)
+                                        {
+                                            <tr>@foreach (var c in _tableColumns) { <td>@(row.TryGetValue(c, out var v) ? v : "")</td> }</tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (_tableTruncated)
+                            {
+                                <p class="run-help">Result truncated — showing first @_tableRows.Count row(s).</p>
+                            }
+                        }
+                    }
+                    else if (_version.FormResultMarkdown && !_result.Contains("[error]"))
                     {
                         <div class="run-result-body">@((MarkupString)RenderMarkdown(_result))</div>
                     }
@@ -263,6 +288,15 @@ else if (_agent is not null && _version is not null)
         color: #16161a;
     }
     .run-result-body a { color: #3b5bdb; }
+    .run-result-table-wrap { overflow-x: auto; }
+    .run-result-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .run-result-table th, .run-result-table td {
+        text-align: left;
+        padding: .45rem .6rem;
+        border-bottom: 1px solid #e5e4e0;
+        white-space: nowrap;
+    }
+    .run-result-table th { color: #57565e; font-weight: 650; }
     .run-result-pending {
         display: flex;
         align-items: center;

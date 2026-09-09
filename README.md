@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 158 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 176 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -169,6 +169,43 @@ zagnieżdżony JSON (dla kolejnego `jsonParse` po nim). Niepoprawny JSON albo ni
 (bez wildcardów/filtrów/slice'ów) — jedna wartość z ustalonego kształtu to cały use case, więc
 ręcznie pisany `JsonPathExtractor` nad `System.Text.Json` wystarcza, bez nowej zależności NuGet.
 
+## Test węzła bez publikacji (faza 6)
+
+Panel edycji węzła w edytorze grafu ma sekcję "Test this node" — uruchamia **tylko ten jeden
+węzeł** (na syntetycznym jednowęzłowym grafie bez wychodzących krawędzi, więc runner zatrzymuje
+się natychmiast po nim, niezależnie od tego dokąd węzeł normalnie prowadzi) przeciwko
+przykładowym zmiennym wpisanym ręcznie (`name=value` per linia). Działa na aktualnie edytowanym
+grafie w przeglądarce (łącznie z niezapisanymi zmianami), nie na opublikowanej wersji. Węzły,
+które robią prawdziwe wywołanie (LLM, HTTP, databaseQuery, integrator, subAgent) faktycznie je
+wykonują — to celowe, sens testu to zobaczenie prawdziwego wyniku bez publikowania całego
+agenta. `start`/`parallel`/`join` są wyłączone (strukturalne, nic nie ma sensu testować w
+izolacji). Wynik testu **nie trafia** do `/analytics` ani do execution logu agenta —
+`WorkflowRunner.DebugNodeAsync` używa tego samego `IExecutionLogWriter`, ale nigdy nie wywołuje
+`CompleteAsync`, więc nic się nie zapisuje do bazy.
+
+## Tabela wyników w formularzu i czacie (faza 6)
+
+Jeśli wynik agenta to dokładnie koperta zwracana przez węzeł `databaseQuery`
+(`{"rows":[...],"rowCount":N,"truncated":bool}`) — np. End node ma `{variables.dbResult}` bez
+pośredniego `jsonParse` — renderuje się jako tabela HTML zamiast surowego JSON-a. Dotyczy
+formularza `/run/{agentId}/{version}`, publicznego czatu `/chat/{agentId}/{version}` (per
+wiadomość, tylko dokończone odpowiedzi asystenta — nie jeszcze streamowany fragment) i
+testowego czatu w studiu (panel agenta). Rozpoznawanie kształtu:
+`AgentStudio.Domain/DatabaseResultTable.cs` (czysta funkcja, ten sam wzorzec co
+`JsonPathExtractor`). Każda inna zawartość (zwykła odpowiedź czatu, wynik `jsonParse`)
+przechodzi przez dotychczasowe renderowanie markdown/tekst — nic się nie zmienia dla
+istniejących formularzy/czatów.
+
+## Porównanie wersji grafu (faza 6)
+
+Na stronie agenta, sekcja "Compare" pozwala wybrać dwie wersje (albo "Draft") i zobaczyć różnicę
+strukturalną: dodane/usunięte/zmienione węzły (z listą zmienionych właściwości) i krawędzie.
+Porównanie działa na DTO grafu (`WorkflowGraphDto`), nie na typowanych klasach węzłów — jedna
+implementacja (`AgentStudio.Contracts/GraphDiff.cs`) obsługuje każdy typ węzła bez case'a per
+typ. Węzły/krawędzie dopasowywane po `Id`; niezmieniona właściwość nie trafia do wyniku.
+Czysto w przeglądarce — Blazor Server ma cały `Agent` (ze wszystkimi wersjami) już załadowany,
+bez nowego zapytania do API.
+
 ## Logi wykonania
 
 Każde wywołanie zapisuje `ExecutionLog` z listą kroków (węzeł, typ, status, czas, błąd).
@@ -178,7 +215,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 158 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 176 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -201,7 +238,13 @@ dotnet test
 # analityka zgłoszeń formularzy (prefiks "form-" w ConversationId, oddzielenie od zwykłych
 # wykonań czatu), jsonParse (zagnieżdżone property/index, liczby/bool/null jako tekst,
 # obiekt/tablica jako surowy JSON, niepoprawny JSON i nieistniejąca ścieżka → czytelny błąd
-# zamiast zawieszenia — regresja na deadlock z fazy 2 etap 4)
+# zamiast zawieszenia — regresja na deadlock z fazy 2 etap 4), DebugNodeAsync (uruchamia jeden
+# węzeł na syntetycznym jednowęzłowym grafie z przykładowymi zmiennymi — zatrzymuje się po tym
+# węźle niezależnie od jego własnych krawędzi, zgłasza błąd węzła zamiast rzucać wyjątek,
+# odrzuca start/parallel/join jako niesensowne do testowania w izolacji), GraphDiff (dodane/
+# usunięte/zmienione węzły i krawędzie, niezmienione właściwości nie są raportowane),
+# DatabaseResultTable (rozpoznaje kopertę wyniku databaseQuery po kluczach rows/rowCount,
+# null jako pusty string, obce kształty JSON — w tym zwykły chat/jsonParse wynik — odrzucone)
 ```
 
 ## Wdrożenie (Windows/IIS)

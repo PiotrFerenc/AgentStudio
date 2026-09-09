@@ -1238,3 +1238,98 @@ Na prośbę użytkownika: krok w grafie do wyciągania jednej wartości z JSON �
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 7
+
+## 1. Cel fazy 7
+
+Na prośbę użytkownika ("zaimplementuj 3, 5, 9" z listy inspirowanej PowerApps): trzy
+niezależne usprawnienia studia, żadne nie rusza silnika wykonania w sposób, który zmienia
+zachowanie istniejących grafów.
+
+1. Wynik `databaseQuery` renderowany jako tabela w formularzu `/run`, nie surowy JSON.
+2. Diff między dwiema wersjami grafu (albo wersją i draftem) w panelu agenta.
+3. Debugger pojedynczego węzła — uruchom jeden node z przykładowymi danymi bez publikacji
+   całego agenta.
+
+## 2. Zasady projektowe (ladder)
+
+- **Debugger nie modyfikuje `RunSegmentAsync`.** `WorkflowRunner.DebugNodeAsync` buduje
+  syntetyczny jednowęzłowy `WorkflowGraph` (sam węzeł docelowy, zero krawędzi) i woła tę samą
+  prywatną `RunSegmentAsync`, której używa prawdziwy przebieg — pętla kończy się naturalnie po
+  jednej iteracji, bo `NextByEdge` nie znajduje krawędzi wychodzącej. Zero duplikacji logiki
+  per typ węzła, zero ryzyka rozjazdu między "prawdziwym" a "debug" zachowaniem tego samego
+  węzła.
+- **Debug nigdy nie trafia do `/analytics` ani execution logu.** `_logWriter.Start`/
+  `StartStep`/`CompleteStep` są czysto w pamięci (patrz `ExecutionLogWriter`) — dopiero
+  `CompleteAsync` zapisuje do bazy, i `DebugNodeAsync` świadomie go nie wywołuje. Zero nowej
+  flagi "is this a debug run" przeciekającej przez cały stos logowania.
+  `start`/`parallel`/`join` odrzucone z czytelnym błędem — strukturalne, nic sensownego do
+  przetestowania w izolacji (parallel/join z natury potrzebują wielu gałęzi).
+- **Diff na DTO (`WorkflowGraphDto`/`Props`), nie na typowanych klasach węzłów.** Jedna
+  implementacja (`GraphDiff.Compare`) porównuje dowolny typ węzła bez case'a per typ — ten
+  sam powód, dla którego `GraphMapper` w ogóle ma generyczny `Props` dict. Węzły/krawędzie
+  dopasowywane po `Id`; niezmieniona właściwość nie trafia do wyniku (żeby diff dwóch
+  identycznych grafów był pusty, nie listą "wszystko bez zmian").
+- **Diff czysto po stronie klienta, żadnego nowego endpointu.** Blazor Interactive Server ma
+  już cały `Agent` (wszystkie wersje, `.Graph` liczone leniwie z `GraphJson`) załadowany w
+  pamięci na stronie agenta — `GraphDiff.Compare(GraphMapper.ToDto(a), GraphMapper.ToDto(b))`
+  woła się bezpośrednio z `@code`, tak jak reszta `StudioApiClient`.
+- **Tabela wyników rozpoznaje kształt, nie pochodzenie.** `DatabaseResultTable.TryParse`
+  sprawdza czy JSON ma dokładnie kopertę `{"rows":[...],"rowCount":N,"truncated":bool}` —
+  jedyny producent tego kształtu to `DatabaseQueryExecutor`, więc rozpoznanie po kształcie
+  wystarcza bez dodatkowego znacznika "to jest wynik SQL". Każdy inny JSON (zwykła odpowiedź
+  czatu, wynik `jsonParse`) przechodzi przez dotychczasowe renderowanie markdown/tekst —
+  zero zmiany zachowania dla istniejących formularzy.
+- **Parser tabeli w `Domain`, nie w `.razor`.** Choć używany tylko przez `RunForm.razor`,
+  logika parsowania to czysta funkcja z realnym rozgałęzieniem (kilka nieudanych kształtów do
+  odrzucenia) — wydzielona do `AgentStudio.Domain/DatabaseResultTable.cs`, ten sam wzorzec co
+  `JsonPathExtractor`/`FormFieldValidator`, żeby dało się ją przetestować bez uruchamiania
+  Blazora.
+
+## 3. Zmiany
+
+- `AgentStudio.Application/WorkflowRunner.cs`: `DebugNodeAsync(agent, provider, graph, nodeId,
+  sampleVariables, ct)` + publiczny record `NodeDebugResult { Success, Detail, EmittedText,
+  Variables, Error }`.
+- `AgentStudio.Web/Services/StudioApiClient.cs`: `DebugNodeAsync(agentId, graphDto, nodeId,
+  sampleVariables, ct)` — rozwiązuje agenta/providera, `GraphMapper.ToDomain` na grafie z
+  edytora (łącznie z niezapisanymi zmianami), woła `WorkflowRunner`.
+- `AgentStudio.Web/Components/NodePropertiesEditor.razor`: sekcja "Test this node" (textarea
+  sample variables `name=value` per linia, przycisk Run, panel wyniku: status/detail/error/
+  emitted text/zmienne po uruchomieniu). Nowe `[Parameter] Guid AgentId`,
+  `[Parameter] WorkflowGraphDto? Graph`, wpięte z `AgentDetail.razor`.
+- `AgentStudio.Contracts/GraphDiff.cs` (nowy plik): `NodeDiffEntry`, `EdgeDiffEntry`,
+  `GraphDiffResult`, `GraphDiff.Compare(WorkflowGraphDto, WorkflowGraphDto)`.
+- `AgentStudio.Web/Components/Pages/AgentDetail.razor`: sekcja "Compare" (dwa selecty:
+  "Draft" + każda wersja, malejąco), lista zmian pod spodem (kolor wg added/removed/modified).
+- `AgentStudio.Domain/DatabaseResultTable.cs` (nowy plik): `TryParse(json, out columns, out
+  rows, out truncated)`.
+- `AgentStudio.Web/Components/Pages/RunForm.razor`: wynik renderowany jako `<table>` gdy
+  `DatabaseResultTable.TryParse` zwróci true (pusty wynik → "No rows." zamiast pustej
+  tabeli), inaczej dotychczasowe markdown/plain-text.
+
+## 4. Testy ✅
+
+- `WorkflowTests.cs`: `DebugNodeAsync_runs_one_node_against_sample_variables`,
+  `DebugNodeAsync_stops_after_the_target_node_even_when_it_has_downstream_edges` (dowód że
+  syntetyczny graf faktycznie izoluje węzeł — sąsiedni `MessageNode` nigdy się nie wykonuje),
+  `DebugNodeAsync_reports_node_failure_without_throwing`,
+  `DebugNodeAsync_rejects_structural_node_types` (start/parallel odrzucone).
+- `GraphDiffTests.cs` (nowy plik, 5 testów): brak różnic między identycznymi grafami, dodane/
+  usunięte węzły, zmienione property+label, niezmienione property nie trafia do wyniku, dodane/
+  usunięte/zmienione krawędzie.
+- `DatabaseResultTableTests.cs` (nowy plik, 6 testów): parsowanie rows/columns, flaga
+  truncated, pusty rows nadal parsuje się poprawnie, null → pusty string, cztery niepasujące
+  kształty odrzucone (nie-JSON, brak rows/rowCount, rows nie-tablicą, JSON-tablica na korzeniu).
+- 176/176 testów zielonych.
+- Zweryfikowane end-to-end na żywym Postgresie (nie mockiem): `DebugNodeAsync` uruchomiony na
+  prawdziwym węźle `databaseQuery` (`test-data`, `SELECT product FROM orders WHERE
+  customer_id=@id`) bez pełnego grafu — zwrócił prawdziwy wynik; ten sam wynik podany do
+  `DatabaseResultTable.TryParse` poprawnie sparsowany na kolumny/wiersze; `GraphDiff.Compare`
+  na dwóch ręcznie zbudowanych grafach poprawnie wykrył dodany węzeł, zmienioną właściwość i
+  dodaną krawędź.
+
+## 5. Status
+
+✅ Zrealizowane.

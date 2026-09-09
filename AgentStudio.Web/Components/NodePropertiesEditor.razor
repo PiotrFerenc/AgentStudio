@@ -1,4 +1,5 @@
 @using AgentStudio.Contracts
+@inject AgentStudio.Web.Services.StudioApiClient Api
 
 @if (Node is null)
 {
@@ -141,6 +142,46 @@ else
             <p>Fan-in: where a parallel split's branches reconverge. Link the split's branches here; continue the workflow from this node's own outgoing edge.</p>
             break;
     }
+
+    @if (Node.Type is not ("start" or "parallel" or "join"))
+    {
+        <hr style="margin:1.2rem 0;border:none;border-top:1px solid #e5e4e0" />
+        <h4>Test this node</h4>
+        <label>Sample variables (one per line: name=value — "input" counts as a variable too)</label>
+        <textarea @bind="_debugVarsText" placeholder="input=5"></textarea>
+        <button @onclick="RunDebugAsync" disabled="@_debugRunning">@(_debugRunning ? "Running…" : "Run test")</button>
+        <p style="color:#868e96;font-size:.8rem">Runs just this node against the graph you're currently editing (unsaved changes included) — nodes that call an LLM, HTTP endpoint or database make a real call. Not saved to /analytics or the execution log.</p>
+
+        @if (_debugError is not null)
+        {
+            <p style="color:#c92a2a">@_debugError</p>
+        }
+        else if (_debugResult is not null)
+        {
+            <div style="border:1px solid #e5e4e0;border-radius:8px;padding:.75rem 1rem;margin-top:.5rem">
+                <p style="color:@(_debugResult.Success ? "#2f9e44" : "#c92a2a");font-weight:600;margin:0 0 .5rem">
+                    @(_debugResult.Success ? "OK" : "Failed") @(_debugResult.Detail is not null ? $"— {_debugResult.Detail}" : "")
+                </p>
+                @if (_debugResult.Error is not null)
+                {
+                    <p style="color:#c92a2a;margin:.25rem 0">@_debugResult.Error</p>
+                }
+                @if (!string.IsNullOrEmpty(_debugResult.EmittedText))
+                {
+                    <p style="margin:.25rem 0"><strong>Emitted:</strong> @_debugResult.EmittedText</p>
+                }
+                <details>
+                    <summary>Variables after run</summary>
+                    <ul>
+                        @foreach (var kv in _debugResult.Variables)
+                        {
+                            <li><code>@kv.Key</code> = @kv.Value</li>
+                        }
+                    </ul>
+                </details>
+            </div>
+        }
+    }
 }
 
 @code {
@@ -149,6 +190,47 @@ else
     [Parameter] public List<AgentStudio.Domain.Agent>? AvailableAgents { get; set; }
     [Parameter] public List<AgentStudio.Domain.DatabaseConnectionConfig>? AvailableConnections { get; set; }
     [Parameter] public List<AgentStudio.Contracts.IntegratorSummary>? AvailableIntegrators { get; set; }
+    [Parameter] public Guid AgentId { get; set; }
+    [Parameter] public WorkflowGraphDto? Graph { get; set; }
+
+    private string _debugVarsText = "";
+    private bool _debugRunning;
+    private string? _debugError;
+    private AgentStudio.Application.NodeDebugResult? _debugResult;
+
+    private async Task RunDebugAsync()
+    {
+        if (Node is null || Graph is null) return;
+        _debugRunning = true;
+        _debugError = null;
+        _debugResult = null;
+        try
+        {
+            var sample = ParseNameValueLines(_debugVarsText);
+            _debugResult = await Api.DebugNodeAsync(AgentId, Graph, Node.Id, sample);
+        }
+        catch (Exception ex)
+        {
+            _debugError = ex.Message;
+        }
+        finally
+        {
+            _debugRunning = false;
+        }
+    }
+
+    private static Dictionary<string, string> ParseNameValueLines(string text)
+    {
+        var dict = new Dictionary<string, string>();
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0) continue;
+            var idx = trimmed.IndexOf('=');
+            if (idx > 0) dict[trimmed[..idx].Trim()] = trimmed[(idx + 1)..].Trim();
+        }
+        return dict;
+    }
 
     private WorkflowNodeDto? Node => SelectedNode;
 

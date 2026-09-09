@@ -87,6 +87,55 @@ else
                 }
             </ul>
         }
+        @if (_diffOptions.Count > 1)
+        {
+            <div style="margin-top:.75rem">
+                <label style="display:inline;margin:0">Compare</label>
+                <select style="display:inline-block;width:auto;margin:0 .4rem" @bind="_diffFrom" @bind:after="RunDiff">
+                    @foreach (var o in _diffOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+                <label style="display:inline;margin:0">to</label>
+                <select style="display:inline-block;width:auto;margin:0 .4rem" @bind="_diffTo" @bind:after="RunDiff">
+                    @foreach (var o in _diffOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+                @if (_diffResult is not null)
+                {
+                    @if (_diffResult.IsEmpty)
+                    {
+                        <p style="color:#868e96;font-size:.85rem;margin-top:.5rem">No differences.</p>
+                    }
+                    else
+                    {
+                        <ul style="margin-top:.5rem;font-size:.85rem">
+                            @foreach (var n in _diffResult.Nodes)
+                            {
+                                <li>
+                                    <span style="color:@DiffColor(n.ChangeKind);font-weight:650">@n.ChangeKind</span>
+                                    node <code>@n.NodeId</code> (@n.Type)
+                                    @if (n.ChangedProps.Count > 0)
+                                    {
+                                        <text> — changed: @string.Join(", ", n.ChangedProps)</text>
+                                    }
+                                </li>
+                            }
+                            @foreach (var e in _diffResult.Edges)
+                            {
+                                <li>
+                                    <span style="color:@DiffColor(e.ChangeKind);font-weight:650">@e.ChangeKind</span>
+                                    edge <code>@e.SourceNodeId</code> → <code>@e.TargetNodeId</code>@(e.Branch is null ? "" : $" ({e.Branch})")
+                                </li>
+                            }
+                        </ul>
+                    }
+                }
+            </div>
+        }
     </div>
 
     <div class="panel">
@@ -96,7 +145,7 @@ else
                 <GraphEditor Graph="_graph" GraphChanged="OnGraphChanged" @ref="_editor" />
             </div>
             <div style="flex:1;min-width:280px">
-                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" />
+                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" AgentId="Id" Graph="_graph" />
             </div>
         </div>
     </div>
@@ -338,7 +387,33 @@ else
             {
                 <div class="chat-msg @m.Role">
                     <div class="role">@m.Role</div>
-                    <div class="content">@m.Content</div>
+                    <div class="content">
+                        @if (m.Role == "assistant" && DatabaseResultTable.TryParse(m.Content, out var _tCols, out var _tRows, out _))
+                        {
+                            @if (_tRows.Count == 0)
+                            {
+                                <span>No rows.</span>
+                            }
+                            else
+                            {
+                                <div class="chat-result-table-wrap">
+                                    <table class="chat-result-table">
+                                        <thead><tr>@foreach (var c in _tCols) { <th>@c</th> }</tr></thead>
+                                        <tbody>
+                                            @foreach (var row in _tRows)
+                                            {
+                                                <tr>@foreach (var c in _tCols) { <td>@(row.TryGetValue(c, out var v) ? v : "")</td> }</tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            @m.Content
+                        }
+                    </div>
                 </div>
             }
             @if (_streaming.Length > 0)
@@ -438,6 +513,39 @@ else
         Agent?.Versions.Where(v => v.Status == AgentVersionStatus.Unpublished).OrderByDescending(v => v.Version)
         ?? Enumerable.Empty<AgentVersion>();
 
+    private string _diffFrom = "";
+    private string _diffTo = "";
+    private GraphDiffResult? _diffResult;
+
+    /// <summary>"Draft" plus every version, newest first — the same set a user would naturally
+    /// want to diff against ("what did I just change before publishing").</summary>
+    private List<string> _diffOptions =>
+        (Agent?.Draft is null ? Enumerable.Empty<string>() : new[] { "Draft" })
+            .Concat(Agent?.Versions.OrderByDescending(v => v.Version).Select(v => $"v{v.Version}") ?? Enumerable.Empty<string>())
+            .ToList();
+
+    private WorkflowGraph? GraphFor(string option)
+    {
+        if (Agent is null || string.IsNullOrEmpty(option)) return null;
+        if (option == "Draft") return Agent.Draft?.Graph;
+        var version = int.Parse(option.TrimStart('v'));
+        return Agent.Versions.FirstOrDefault(v => v.Version == version)?.Graph;
+    }
+
+    private void RunDiff()
+    {
+        var from = GraphFor(_diffFrom);
+        var to = GraphFor(_diffTo);
+        _diffResult = from is null || to is null ? null : GraphDiff.Compare(GraphMapper.ToDto(from), GraphMapper.ToDto(to));
+    }
+
+    private static string DiffColor(string changeKind) => changeKind switch
+    {
+        "added" => "#2f9e44",
+        "removed" => "#c92a2a",
+        _ => "#e8590c"
+    };
+
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
 
@@ -505,6 +613,13 @@ else
         _allAgents = await Api.ListAgentsAsync();
         _allConnections = Api.ListDatabaseConnections();
         _allIntegrators = Api.ListIntegrators();
+
+        if (_diffOptions.Count > 1)
+        {
+            _diffFrom = _diffOptions[1]; // newest version (or "Draft" itself if there's only Draft + one version)
+            _diffTo = _diffOptions[0];
+            RunDiff();
+        }
     }
 
     private async Task UploadDocumentAsync(InputFileChangeEventArgs e)

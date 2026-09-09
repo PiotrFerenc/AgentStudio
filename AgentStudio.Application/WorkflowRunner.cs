@@ -80,6 +80,46 @@ public sealed class WorkflowRunner
         await runTask; // propagate unexpected errors
     }
 
+    /// <summary>Executes a single node in isolation against caller-supplied sample variables —
+    /// lets the graph editor test one node (a jsonParse Path, a SQL query, a prompt) without
+    /// publishing the whole agent. Runs against a synthetic one-node graph with no outgoing
+    /// edges, so it stops after exactly that node regardless of its own branching (a condition's
+    /// true/false result still shows up in Detail, it just never continues to a next node).
+    /// Never persisted: StartStep/CompleteStep are in-memory only (ExecutionLogWriter), and
+    /// CompleteAsync is deliberately never called here, so debug runs don't pollute
+    /// /analytics or the agent's execution log.</summary>
+    public async Task<NodeDebugResult> DebugNodeAsync(
+        Agent agent,
+        ModelProviderConfig provider,
+        WorkflowGraph graph,
+        string nodeId,
+        IReadOnlyDictionary<string, string> sampleVariables,
+        CancellationToken ct = default)
+    {
+        var node = graph.Nodes.FirstOrDefault(n => n.Id == nodeId)
+            ?? throw new InvalidOperationException($"Node '{nodeId}' not found in graph.");
+        if (node is StartNode or ParallelNode or JoinNode)
+            throw new InvalidOperationException($"'{node.Type}' nodes can't be debugged in isolation — run the full graph instead.");
+
+        var variables = new Dictionary<string, string>(sampleVariables);
+        var conversation = new ConversationState { ConversationId = $"debug-{Guid.NewGuid():N}", AgentId = agent.Id, AgentVersion = 0 };
+        var log = _logWriter.Start(conversation.ConversationId, agent.Id, 0);
+        var isolated = new WorkflowGraph();
+        isolated.Nodes.Add(node);
+        var buffer = new StringBuilder();
+        ChunkSink emit = (text, _) => { buffer.Append(text); return Task.CompletedTask; };
+
+        try
+        {
+            await RunSegmentAsync(isolated, node, stopAtNodeId: null, variables, conversation, agent, provider, log, new StepCounter(), maxSteps: 1, emit, callDepth: 0, ct);
+            return new NodeDebugResult(true, log.Steps.LastOrDefault()?.Detail, buffer.ToString(), variables, null);
+        }
+        catch (Exception ex)
+        {
+            return new NodeDebugResult(false, log.Steps.LastOrDefault()?.Detail, buffer.ToString(), variables, ex.Message);
+        }
+    }
+
     private async Task ExecuteAsync(
         Agent agent,
         AgentVersion version,
@@ -525,3 +565,9 @@ public sealed class WorkflowRunner
         });
     }
 }
+
+/// <summary>Result of <see cref="WorkflowRunner.DebugNodeAsync"/> — <c>Detail</c> is the same
+/// short status string the real run's execution log would show for this step (e.g. "condition:
+/// True", "databaseQuery test-data: 84 chars"); <c>Variables</c> is the full variable set after
+/// the node ran, so the caller can see exactly which variable it wrote.</summary>
+public sealed record NodeDebugResult(bool Success, string? Detail, string EmittedText, IReadOnlyDictionary<string, string> Variables, string? Error);
