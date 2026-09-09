@@ -16,7 +16,7 @@ public class AgentServiceScheduleTests
     {
         var db = NewDb(dbName);
         var repo = new AgentRepository(db);
-        var service = new AgentService(repo, new ApiKeyService());
+        var service = new AgentService(repo, new ApiKeyService(), new UserRepository(db));
         var (agent, _) = await service.CreateAsync(new CreateAgentRequest("t", "", "", "p", "m"));
         return (service, agent);
     }
@@ -70,7 +70,7 @@ public class AgentServiceScheduleTests
     public async Task UpdateScheduleAsync_missing_agent_fails_clearly()
     {
         var db = NewDb(nameof(UpdateScheduleAsync_missing_agent_fails_clearly));
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
 
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             service.UpdateScheduleAsync(Guid.NewGuid(), enabled: false, intervalMinutes: null, input: ""));

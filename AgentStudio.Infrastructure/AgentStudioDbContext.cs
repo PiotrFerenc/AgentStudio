@@ -22,6 +22,7 @@ public sealed class AgentStudioDbContext : DbContext
     public DbSet<AgentCollectionEntry> AgentCollectionEntries => Set<AgentCollectionEntry>();
     public DbSet<GraphComponent> GraphComponents => Set<GraphComponent>();
     public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
+    public DbSet<AgentCollaborator> AgentCollaborators => Set<AgentCollaborator>();
 
     /// <summary>
     /// Structural equality/clone for a jsonb-converted collection property. Required whenever an
@@ -58,7 +59,13 @@ public sealed class AgentStudioDbContext : DbContext
             e.Property(a => a.Name).HasMaxLength(200).IsRequired();
             e.Ignore(a => a.Draft);
             e.HasMany(a => a.Versions).WithOne().HasForeignKey(v => v.AgentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(a => a.Collaborators).WithOne().HasForeignKey(c => c.AgentId).OnDelete(DeleteBehavior.Cascade);
             e.Property(a => a.EnvironmentVariables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<AgentCollaborator>(e =>
+        {
+            e.HasKey(c => new { c.AgentId, c.UserId });
         });
 
         modelBuilder.Entity<AgentVersion>(e =>

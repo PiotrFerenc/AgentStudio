@@ -10,10 +10,10 @@ public sealed class AgentRepository : IAgentRepository
     public AgentRepository(AgentStudioDbContext db) => _db = db;
 
     public async Task<Agent?> GetAsync(Guid id, CancellationToken ct = default) =>
-        await _db.Agents.Include(a => a.Versions).AsTracking().FirstOrDefaultAsync(a => a.Id == id, ct);
+        await _db.Agents.Include(a => a.Versions).Include(a => a.Collaborators).AsTracking().FirstOrDefaultAsync(a => a.Id == id, ct);
 
     public async Task<List<Agent>> ListAsync(CancellationToken ct = default) =>
-        await _db.Agents.Include(a => a.Versions).AsTracking().OrderBy(a => a.Name).ToListAsync(ct);
+        await _db.Agents.Include(a => a.Versions).Include(a => a.Collaborators).AsTracking().OrderBy(a => a.Name).ToListAsync(ct);
 
     public async Task AddAsync(Agent agent, CancellationToken ct = default) => await _db.Agents.AddAsync(agent, ct);
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);

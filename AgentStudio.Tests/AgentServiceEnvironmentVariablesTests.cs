@@ -16,7 +16,7 @@ public class AgentServiceEnvironmentVariablesTests
     {
         var db = NewDb(dbName);
         var repo = new AgentRepository(db);
-        var service = new AgentService(repo, new ApiKeyService());
+        var service = new AgentService(repo, new ApiKeyService(), new UserRepository(db));
         var (agent, _) = await service.CreateAsync(new CreateAgentRequest("t", "", "", "p", "m"));
         return (service, agent);
     }
@@ -50,7 +50,7 @@ public class AgentServiceEnvironmentVariablesTests
     public async Task UpdateEnvironmentVariablesAsync_missing_agent_fails_clearly()
     {
         var db = NewDb(nameof(UpdateEnvironmentVariablesAsync_missing_agent_fails_clearly));
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
 
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             service.UpdateEnvironmentVariablesAsync(Guid.NewGuid(), new Dictionary<string, string>()));

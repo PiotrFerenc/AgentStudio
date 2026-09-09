@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 254 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 267 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -123,6 +123,24 @@ curl -X POST http://localhost:5251/api/agents/$ID/versions/1/conversations \
 `conversationId` utrzymuje wieloturową rozmowę trwale w Postgresie (faza 2) — bez TTL domyślnie,
 przeżywa restart aplikacji. Opcjonalny job czyszczący stare rozmowy — `ConversationRetention`
 w DEPLOYMENT.md, wyłączony domyślnie.
+
+## Dostęp per agent (faza 14)
+
+Każdy agent ma właściciela (`OwnerId`/`OwnerUsername`, ustawiany automatycznie przy tworzeniu z
+zalogowanego użytkownika) i listę współpracowników (`Collaborators`). Edytować agenta może:
+Admin (zawsze), właściciel, albo dodany współpracownik — nic więcej. To warstwa NAD istniejącymi
+globalnymi rolami Admin/Editor, nie ich zamiennik: zwykły Editor bez relacji do konkretnego
+agenta nie może go otworzyć do edycji (strona pokazuje "brak dostępu"), ale lista agentów na
+`/` pokazuje wszystkich (z kolumną Owner) — filtrowana jest tylko edycja, nie widoczność.
+Panel "Share" (widoczny tylko dla właściciela/Admina) na stronie agenta dodaje/usuwa
+współpracowników po nazwie użytkownika — jeden poziom uprawnień (może edytować, kropka), bez
+osobnej roli "tylko podgląd".
+
+**Sprawdzane w dwóch miejscach celowo**: strona studia chowa edytor dla niedozwolonych (UX), ale
+prawdziwą granicą bezpieczeństwa jest `Program.cs` — każdy mutujący endpoint `/api/agents/{id}
+/...` (`draft`, `publish`, `regenerate-key`, `unpublish`, `republish`) sprawdza dostęp server-side
+i zwraca `403`, zanim cokolwiek zrobi. Samo ukrycie przycisku w UI nie chroni przed kimś, kto ma
+ważne ciasteczko sesji i strzela bezpośrednio w REST API przez curl.
 
 ## Zatwierdzenie przez człowieka (faza 13)
 
@@ -315,7 +333,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 254 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 267 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -372,7 +390,12 @@ dotnet test
 # zawiesza run i tworzy PendingApproval ze zrzutem zmiennych bez uruchomienia żadnej gałęzi,
 # ResumeApprovalAsync approved/rejected trafia w poprawną gałąź z podstawionymi zmiennymi,
 # nieistniejące/już zdecydowane pending approval → czytelny błąd), walidator wymaga krawędzi
-# approved+rejected na węźle approval
+# approved+rejected na węźle approval, AgentAccess.CanEdit (admin/właściciel/współpracownik
+# przechodzi, obcy Editor nie, agent bez właściciela i bez współpracowników edytowalny tylko
+# przez admina), AgentService add/remove collaborator (dodanie po nazwie, nieznana nazwa →
+# czytelny błąd, podwójne dodanie idempotentne, usunięcie faktycznie odbiera dostęp),
+# REST end-to-end przez WebApplicationFactory (obcy Editor dostaje 403 na /draft, właściciel
+# edytuje własnego agenta bez roli Admin, Admin edytuje cudzego agenta mimo braku własności)
 ```
 
 ## Wdrożenie (Windows/IIS)

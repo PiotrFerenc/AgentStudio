@@ -72,8 +72,8 @@ public sealed class StudioApiClient
     public Task<List<Agent>> ListAgentsAsync(CancellationToken ct = default) => _agents.ListAsync(ct);
     public Task<Agent?> GetAgentAsync(Guid id, CancellationToken ct = default) => _agents.GetAsync(id, ct);
 
-    public async Task<(Agent Agent, string RawKey)> CreateAgentAsync(string name, string description, string instructions, string providerName, string modelName, CancellationToken ct = default) =>
-        await _agentService.CreateAsync(new CreateAgentRequest(name, description, instructions, providerName, modelName), ct);
+    public async Task<(Agent Agent, string RawKey)> CreateAgentAsync(string name, string description, string instructions, string providerName, string modelName, Guid? ownerId = null, string? ownerUsername = null, CancellationToken ct = default) =>
+        await _agentService.CreateAsync(new CreateAgentRequest(name, description, instructions, providerName, modelName), ownerId, ownerUsername, ct);
 
     public Task<ValidationResultDto> SaveDraftAsync(
         Guid agentId, WorkflowGraphDto graph, int? maxSteps = null, List<FormField>? formFields = null,
@@ -92,6 +92,12 @@ public sealed class StudioApiClient
 
     public Task UpdateEnvironmentVariablesAsync(Guid agentId, Dictionary<string, string> variables, CancellationToken ct = default) =>
         _agentService.UpdateEnvironmentVariablesAsync(agentId, variables, ct);
+
+    public Task AddCollaboratorAsync(Guid agentId, string username, CancellationToken ct = default) =>
+        _agentService.AddCollaboratorAsync(agentId, username, ct);
+
+    public Task RemoveCollaboratorAsync(Guid agentId, Guid userId, CancellationToken ct = default) =>
+        _agentService.RemoveCollaboratorAsync(agentId, userId, ct);
 
     public Task<AgentVersion> UnpublishAsync(Guid agentId, int version, CancellationToken ct = default) =>
         _agentService.UnpublishAsync(agentId, version, ct);

@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @inject AgentStudio.Web.Services.StudioApiClient Api
 @inject NavigationManager Nav
+@using Microsoft.AspNetCore.Components.Authorization
 
 <PageTitle>Agents</PageTitle>
 
@@ -19,12 +20,13 @@
     else
     {
         <table>
-            <thead><tr><th>Name</th><th>Model</th><th>Versions</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Owner</th><th>Model</th><th>Versions</th><th>Created</th><th></th></tr></thead>
             <tbody>
                 @foreach (var a in _agents)
                 {
                     <tr>
                         <td>@a.Name</td>
+                        <td style="color:#868e96;font-size:.85rem">@(a.OwnerUsername ?? "—")</td>
                         <td>@a.ModelProviderName / @a.ModelName</td>
                         <td>
                             @foreach (var v in a.Versions.OrderByDescending(v => v.Version))
@@ -71,6 +73,8 @@
 </div>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private List<AgentStudio.Domain.Agent>? _agents;
     private List<AgentStudio.Domain.ModelProviderConfig>? _providers;
     private string _name = "";
@@ -92,7 +96,16 @@
         _creating = true;
         try
         {
-            var (agent, key) = await Api.CreateAgentAsync(_name, _description, _instructions, _providerName, _modelName);
+            Guid? ownerId = null;
+            string? ownerUsername = null;
+            if (AuthState is not null)
+            {
+                var state = await AuthState;
+                if (Guid.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id))
+                    ownerId = id;
+                ownerUsername = state.User.Identity?.Name;
+            }
+            var (agent, key) = await Api.CreateAgentAsync(_name, _description, _instructions, _providerName, _modelName, ownerId, ownerUsername);
             _createdKey = key;
             _agents = await Api.ListAgentsAsync();
         }

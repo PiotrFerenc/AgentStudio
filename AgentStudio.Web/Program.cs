@@ -148,9 +148,27 @@ api.MapPost("/providers", async (CreateProviderRequest req, IProviderRepository 
 api.MapGet("/agents", async (IAgentRepository repo, CancellationToken ct) =>
     Results.Ok((await repo.ListAsync(ct)).Select(a => new AgentDto(a.Id, a.Name, a.Description, a.SystemInstructions, a.ModelProviderName, a.ModelName, a.CreatedAt))));
 
-api.MapPost("/agents", async (CreateAgentRequest req, AgentService service, CancellationToken ct) =>
+// Per-agent edit access (phase 14): Admin always allowed; otherwise the agent's Owner or a
+// listed Collaborator. Shared by every mutating /agents/{id}/... endpoint below so a curl with
+// a valid session cookie can't bypass the same check the Blazor UI applies — client-side-only
+// enforcement is trivially bypassed, same reasoning as every other guard in this API.
+static async Task<(Agent? Agent, IResult? Error)> CheckEditAccessAsync(Guid agentId, HttpContext http, IAgentRepository agents, IUserRepository users, CancellationToken ct)
 {
-    var (agent, rawKey) = await service.CreateAsync(req, ct);
+    var agent = await agents.GetAsync(agentId, ct);
+    if (agent is null) return (null, Results.NotFound());
+    if (!Guid.TryParse(http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+        return (null, Results.Json(new { error = "Not authenticated." }, statusCode: 401));
+    var user = await users.GetAsync(userId, ct);
+    if (user is null || !AgentAccess.CanEdit(agent, user))
+        return (null, Results.Json(new { error = "You don't have edit access to this agent." }, statusCode: 403));
+    return (agent, null);
+}
+
+api.MapPost("/agents", async (CreateAgentRequest req, AgentService service, HttpContext http, CancellationToken ct) =>
+{
+    Guid.TryParse(http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var ownerId);
+    var ownerUsername = http.User.FindFirst(ClaimTypes.Name)?.Value;
+    var (agent, rawKey) = await service.CreateAsync(req, ownerId, ownerUsername, ct);
     return Results.Created($"/api/agents/{agent.Id}", new
     {
         agent = new AgentDto(agent.Id, agent.Name, agent.Description, agent.SystemInstructions, agent.ModelProviderName, agent.ModelName, agent.CreatedAt),
@@ -170,8 +188,10 @@ api.MapGet("/agents/{id:guid}", async (Guid id, IAgentRepository repo, Cancellat
     });
 });
 
-api.MapPut("/agents/{id:guid}/draft", async (Guid id, UpdateDraftRequest req, AgentService service, CancellationToken ct) =>
+api.MapPut("/agents/{id:guid}/draft", async (Guid id, UpdateDraftRequest req, AgentService service, HttpContext http, IAgentRepository agents, IUserRepository users, CancellationToken ct) =>
 {
+    var (_, accessError) = await CheckEditAccessAsync(id, http, agents, users, ct);
+    if (accessError is not null) return accessError;
     try
     {
         return Results.Ok(await service.UpdateDraftAsync(id, req.Graph, req.MaxSteps, req.FormFields, req.FormResultMode, req.FormResultTarget, req.FormResultMarkdown, ct));
@@ -190,8 +210,10 @@ api.MapPost("/agents/{id:guid}/validate", async (Guid id, IAgentRepository repo,
     return Results.Ok(new ValidationResultDto(errors.Count == 0, errors));
 });
 
-api.MapPost("/agents/{id:guid}/publish", async (Guid id, AgentService service, CancellationToken ct) =>
+api.MapPost("/agents/{id:guid}/publish", async (Guid id, AgentService service, HttpContext http, IAgentRepository agents, IUserRepository users, CancellationToken ct) =>
 {
+    var (_, accessError) = await CheckEditAccessAsync(id, http, agents, users, ct);
+    if (accessError is not null) return accessError;
     try
     {
         var version = await service.PublishAsync(id, ct);
@@ -207,8 +229,10 @@ api.MapPost("/agents/{id:guid}/publish", async (Guid id, AgentService service, C
     }
 });
 
-api.MapPost("/agents/{id:guid}/regenerate-key", async (Guid id, AgentService service, CancellationToken ct) =>
+api.MapPost("/agents/{id:guid}/regenerate-key", async (Guid id, AgentService service, HttpContext http, IAgentRepository agents, IUserRepository users, CancellationToken ct) =>
 {
+    var (_, accessError) = await CheckEditAccessAsync(id, http, agents, users, ct);
+    if (accessError is not null) return accessError;
     try
     {
         var rawKey = await service.RegenerateApiKeyAsync(id, ct);
@@ -220,8 +244,10 @@ api.MapPost("/agents/{id:guid}/regenerate-key", async (Guid id, AgentService ser
     }
 });
 
-api.MapPost("/agents/{id:guid}/versions/{version:int}/unpublish", async (Guid id, int version, AgentService service, CancellationToken ct) =>
+api.MapPost("/agents/{id:guid}/versions/{version:int}/unpublish", async (Guid id, int version, AgentService service, HttpContext http, IAgentRepository agents, IUserRepository users, CancellationToken ct) =>
 {
+    var (_, accessError) = await CheckEditAccessAsync(id, http, agents, users, ct);
+    if (accessError is not null) return accessError;
     try
     {
         var v = await service.UnpublishAsync(id, version, ct);
@@ -237,8 +263,10 @@ api.MapPost("/agents/{id:guid}/versions/{version:int}/unpublish", async (Guid id
     }
 });
 
-api.MapPost("/agents/{id:guid}/versions/{version:int}/republish", async (Guid id, int version, AgentService service, CancellationToken ct) =>
+api.MapPost("/agents/{id:guid}/versions/{version:int}/republish", async (Guid id, int version, AgentService service, HttpContext http, IAgentRepository agents, IUserRepository users, CancellationToken ct) =>
 {
+    var (_, accessError) = await CheckEditAccessAsync(id, http, agents, users, ct);
+    if (accessError is not null) return accessError;
     try
     {
         var v = await service.RepublishAsync(id, version, ct);

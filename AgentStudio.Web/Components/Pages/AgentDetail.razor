@@ -11,10 +11,22 @@
 {
     <p>Loading...</p>
 }
+else if (!_canEdit)
+{
+    <div class="panel">
+        <h2>@Agent.Name</h2>
+        <p>You don't have edit access to this agent — only its owner (@(Agent.OwnerUsername ?? "unknown")), a collaborator, or an Admin can open it.</p>
+        <p><a href="/">Back to agents</a></p>
+    </div>
+}
 else
 {
     <div class="panel">
         <h2>@Agent.Name <span class="badge">@Agent.ModelProviderName / @Agent.ModelName</span></h2>
+        @if (Agent.OwnerUsername is not null)
+        {
+            <p style="color:#868e96;font-size:.8rem;margin-top:-.3rem">Owned by @Agent.OwnerUsername</p>
+        }
         <p>@Agent.Description</p>
         <p>
             Draft status: <strong>@DraftStatus</strong>
@@ -165,6 +177,29 @@ else
             </div>
         }
     </div>
+
+    @if (_canManageSharing)
+    {
+        <div class="panel">
+            <h2>Share</h2>
+            <p style="color:#868e96;font-size:.85rem">Collaborators can edit this agent same as you, but only the owner or an Admin can change who else has access.</p>
+            @if (Agent.Collaborators.Count > 0)
+            {
+                <ul>
+                    @foreach (var c in Agent.Collaborators)
+                    {
+                        <li>@c.Username <button class="secondary" style="margin-left:.5rem;padding:.1rem .5rem;font-size:.72rem" @onclick="() => RemoveCollaboratorAsync(c.UserId)">Remove</button></li>
+                    }
+                </ul>
+            }
+            <input type="text" @bind="_newCollaboratorUsername" @bind:event="oninput" placeholder="Username" style="width:14em;display:inline-block" />
+            <button class="secondary" style="padding:.15rem .6rem;font-size:.75rem" @onclick="AddCollaboratorAsync">Add collaborator</button>
+            @if (_shareError is not null)
+            {
+                <p class="error-list">@_shareError</p>
+            }
+        </div>
+    }
 
     <div class="panel">
         <h2>Workflow Graph</h2>
@@ -507,8 +542,13 @@ else
 
 @code {
     [Parameter] public Guid Id { get; set; }
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
     private Agent? Agent;
+    private bool _canEdit;
+    private bool _canManageSharing;
+    private string _newCollaboratorUsername = "";
+    private string? _shareError;
     private List<Agent>? _allAgents;
     private List<DatabaseConnectionConfig>? _allConnections;
     private List<IntegratorSummary>? _allIntegrators;
@@ -638,6 +678,7 @@ else
         Agent = await Api.GetAgentAsync(Id);
         if (Agent is not null)
         {
+            _canEdit = await ComputeCanEditAsync(Agent);
             _scheduleEnabled = Agent.ScheduleEnabled;
             _scheduleIntervalMinutes = Agent.ScheduleIntervalMinutes;
             _scheduleInput = Agent.ScheduleInput;
@@ -722,6 +763,40 @@ else
         {
             _scheduleMessage = ex.Message;
         }
+    }
+
+    private async Task<bool> ComputeCanEditAsync(Agent agent)
+    {
+        if (AuthState is null) return false; // fail-closed: no auth info, no access
+        var state = await AuthState;
+        if (!Guid.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var userId)) return false;
+        var roleStr = state.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        var role = Enum.TryParse<UserRole>(roleStr, out var r) ? r : UserRole.Editor;
+        var currentUser = new User { Id = userId, Username = state.User.Identity?.Name ?? "", Role = role };
+        _canManageSharing = role == UserRole.Admin || agent.OwnerId == currentUser.Id;
+        return AgentAccess.CanEdit(agent, currentUser);
+    }
+
+    private async Task AddCollaboratorAsync()
+    {
+        _shareError = null;
+        if (string.IsNullOrWhiteSpace(_newCollaboratorUsername)) return;
+        try
+        {
+            await Api.AddCollaboratorAsync(Id, _newCollaboratorUsername.Trim());
+            _newCollaboratorUsername = "";
+            Agent = await Api.GetAgentAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            _shareError = ex.Message;
+        }
+    }
+
+    private async Task RemoveCollaboratorAsync(Guid userId)
+    {
+        await Api.RemoveCollaboratorAsync(Id, userId);
+        Agent = await Api.GetAgentAsync(Id);
     }
 
     private async Task SaveEnvironmentVariablesAsync()

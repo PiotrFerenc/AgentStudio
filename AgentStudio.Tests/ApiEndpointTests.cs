@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using AgentStudio.Application;
 using AgentStudio.Contracts;
+using AgentStudio.Domain;
 using AgentStudio.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -87,6 +89,26 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
     }
 
     private sealed record CreateAgentResponse(AgentDto Agent, string ApiKey);
+
+    /// <summary>Creates a fresh non-admin Editor and returns a logged-in client for them —
+    /// distinct from the shared admin _client, needed to exercise per-agent access control
+    /// (phase 14), since an Admin bypasses ownership entirely.</summary>
+    private async Task<HttpClient> LoginAsNewEditorAsync(string username)
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserService>();
+            await users.CreateAsync(username, "editor-password-123", UserRole.Editor);
+        }
+        var client = _factory.CreateClient();
+        var login = await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["username"] = username,
+            ["password"] = "editor-password-123"
+        }));
+        login.EnsureSuccessStatusCode();
+        return client;
+    }
 
     [Fact]
     public async Task Create_and_get_agent_roundtrips()
@@ -250,5 +272,57 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
         Assert.Contains("event: conversation", body);
         Assert.Contains("\"delta\":\"Hello streaming world\"", body);
         Assert.Contains("event: done", body);
+    }
+
+    [Fact]
+    public async Task Non_owner_editor_cannot_edit_someone_elses_agent()
+    {
+        // Created by the admin _client, so its owner is the admin, not "eve".
+        var (id, _) = await CreateAgentAsync("owned-by-admin");
+        var graph = new WorkflowGraphDto();
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "s", Type = "start" });
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "e", Type = "end" });
+        graph.Edges.Add(new WorkflowEdgeDto { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
+
+        var eve = await LoginAsNewEditorAsync("eve");
+        var resp = await eve.PutAsJsonAsync($"/api/agents/{id}/draft", new UpdateDraftRequest(graph));
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Owner_can_edit_their_own_agent_even_without_admin_role()
+    {
+        var frank = await LoginAsNewEditorAsync("frank");
+        await frank.PostAsJsonAsync("/api/providers", new CreateProviderRequest("provider-frank", "http://unused.invalid", "model-x", null));
+        var createResp = await frank.PostAsJsonAsync("/api/agents", new CreateAgentRequest("franks-agent", "d", "i", "provider-frank", "model-x"));
+        createResp.EnsureSuccessStatusCode();
+        var created = await createResp.Content.ReadFromJsonAsync<CreateAgentResponse>();
+
+        var graph = new WorkflowGraphDto();
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "s", Type = "start" });
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "e", Type = "end" });
+        graph.Edges.Add(new WorkflowEdgeDto { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
+        var draftResp = await frank.PutAsJsonAsync($"/api/agents/{created!.Agent.Id}/draft", new UpdateDraftRequest(graph));
+
+        Assert.Equal(HttpStatusCode.OK, draftResp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_can_edit_an_agent_owned_by_someone_else()
+    {
+        var grace = await LoginAsNewEditorAsync("grace");
+        await grace.PostAsJsonAsync("/api/providers", new CreateProviderRequest("provider-grace", "http://unused.invalid", "model-x", null));
+        var createResp = await grace.PostAsJsonAsync("/api/agents", new CreateAgentRequest("graces-agent", "d", "i", "provider-grace", "model-x"));
+        var created = await createResp.Content.ReadFromJsonAsync<CreateAgentResponse>();
+
+        var graph = new WorkflowGraphDto();
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "s", Type = "start" });
+        graph.Nodes.Add(new WorkflowNodeDto { Id = "e", Type = "end" });
+        graph.Edges.Add(new WorkflowEdgeDto { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
+        // _client is the bootstrap Admin — not grace's agent, but Admin bypasses ownership.
+        var draftResp = await _client.PutAsJsonAsync($"/api/agents/{created!.Agent.Id}/draft", new UpdateDraftRequest(graph));
+
+        Assert.Equal(HttpStatusCode.OK, draftResp.StatusCode);
     }
 }

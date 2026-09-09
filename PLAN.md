@@ -1802,3 +1802,86 @@ odrzuca na osobnej stronie, wykonanie kontynuuje się od odpowiedniej gałęzi.
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 14
+
+## 1. Cel fazy 14
+
+Ostatnia pozycja z listy Copilot/Power Apps (#10 — "role per-agent, nie tylko globalne
+Admin/Editor"): kto może edytować/uruchamiać konkretnego agenta, sharing jak w Power Apps,
+zamiast dwupoziomowej globalnej roli.
+
+## 2. Zasady projektowe (ladder)
+
+- **Warstwa NAD istniejącymi rolami, nie ich zamiennik.** Globalne Admin/Editor już
+  odpowiadają na "czy ten użytkownik może w ogóle edytować agentów" — nowa warstwa odpowiada
+  wyłącznie na "czy MOŻE edytować TEGO KONKRETNEGO agenta". Admin zawsze przechodzi (nie
+  dubluje się per-agentowego ownera na każdym z osobna).
+- **Jeden poziom uprawnień (może edytować, kropka), nie Viewer/Editor per agent.** Rozdzielenie
+  odczyt/zapis per agent to realna funkcjonalność Power Apps, ale nieproporcjonalny koszt tu —
+  lista agentów i tak jest widoczna dla każdego zalogowanego (patrz niżej), więc jedyne pytanie
+  z realną wartością to "kto może to zmienić", nie "kto może to zobaczyć".
+- **Lista agentów NIE jest filtrowana po właścicielu — tylko edycja.** Filtrowanie widoczności
+  wymagałoby przemyślenia całego UX strony głównej (co pokazać zamiast ukrytych wierszy, jak to
+  wpływa na wyszukiwanie itd.) dla wątpliwej wartości w self-hosted, małym zespole. Blokowanie
+  samej edycji to najmniejsza rzecz, która realizuje "kto może edytować/uruchamiać" wprost z
+  brainstormu.
+- **Dwa miejsca sprawdzenia — Blazor (UX) i REST (bezpieczeństwo) — celowo, nie duplikacja
+  przez przeoczenie.** Sam UI-owy guard jest trywialny do ominięcia (ważne ciasteczko + curl na
+  `/api/agents/{id}/draft`), więc prawdziwa granica musi być server-side na każdym mutującym
+  endpoincie. Ten sam wybór co reszta warstwy bezpieczeństwa projektu (SSRF allowlist,
+  parametryzacja SQL) — nigdy nie ufaj tylko klientowi.
+- **`Collaborators` musi być eager-loaded (`Include`), inaczej cichy, nie głośny błąd.**
+  Nawigacja EF nieużyta w zapytaniu to pusta lista (konwencja EF), nie null i nie wyjątek —
+  `AgentAccess.CanEdit` po prostu zawsze odmówiłaby dostępu współpracownikom bez żadnego sygnału
+  że coś jest nie tak. Ten sam rodzaj pułapki co "getter musi tolerować" gdzie indziej w tym
+  pliku — tu akurat "repozytorium musi eager-loadować", nie ma czytelnego wyjątku do złapania.
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Agent.cs`: `Agent.OwnerId`/`OwnerUsername`/`Collaborators`,
+  `AgentCollaborator { AgentId, UserId, Username }`, statyczny `AgentAccess.CanEdit(Agent, User)`.
+- `AgentStudio.Infrastructure/AgentStudioDbContext.cs` + `Repositories.cs`: `DbSet
+  <AgentCollaborator>`, FK z cascade, `AgentRepository.GetAsync`/`ListAsync` dostają
+  `.Include(a => a.Collaborators)`.
+- Migracja `AddAgentOwnershipAndCollaborators` (kolumny nullable, nowa tabela) — zastosowana.
+- `AgentStudio.Application/AgentService.cs`: konstruktor zyskuje `IUserRepository` (nowa
+  zależność — 20 miejsc w testach zaktualizowanych przez sed, ten sam wzorzec co przy każdej
+  poprzedniej zmianie konstruktora `WorkflowRunner` w tej sesji); `CreateAsync` zyskuje
+  opcjonalne `ownerId`/`ownerUsername`; `AddCollaboratorAsync` (idempotentny, po nazwie
+  użytkownika)/`RemoveCollaboratorAsync`.
+- `AgentStudio.Web/Program.cs`: `CheckEditAccessAsync` — dzielony guard, wywoływany z `/draft`
+  PUT, `/publish`, `/regenerate-key`, `/unpublish`, `/republish`; `/agents` POST czyta
+  `ClaimTypes.NameIdentifier`/`Name` z sesji i przekazuje jako ownera.
+- `AgentStudio.Web/Services/StudioApiClient.cs`: `CreateAgentAsync` zyskuje owner, `Add`/
+  `RemoveCollaboratorAsync`.
+- `AgentStudio.Web/Components/Pages/AgentDetail.razor`: `[CascadingParameter]
+  AuthenticationState`, `ComputeCanEditAsync` (buduje lekki `User` z claimów, woła
+  `AgentAccess.CanEdit`), gate całej strony (`else if (!_canEdit)`) zamiast częściowego
+  read-only — mniejszy diff, wystarczająca semantyka dla self-hosted narzędzia. Panel "Share"
+  (widoczny tylko właścicielowi/Adminowi).
+- `AgentStudio.Web/Components/Pages/Home.razor`: kolumna Owner, `CreateAsync` przekazuje
+  bieżącego użytkownika jako ownera.
+
+## 4. Testy ✅
+
+- `AgentAccessTests.cs` (nowy plik, 5 testów): admin/właściciel/współpracownik przechodzą,
+  obcy Editor nie, agent bez właściciela i współpracowników edytowalny tylko przez admina.
+- `AgentServiceCollaboratorTests.cs` (nowy plik, 5 testów, InMemory EF): `CreateAsync` ustawia
+  właściciela, dodanie po nazwie działa, nieznana nazwa → czytelny błąd, podwójne dodanie
+  idempotentne, usunięcie faktycznie odbiera dostęp.
+- `ApiEndpointTests.cs` (+3 testy, prawdziwy `WebApplicationFactory` — nie fake'i): obcy Editor
+  dostaje `403` na `/draft`, właściciel (zwykły Editor, nie Admin) edytuje własnego agenta,
+  Admin edytuje agenta należącego do kogoś innego mimo braku własności/collaboration.
+- 267/267 testów zielonych.
+- Zweryfikowane end-to-end na żywym serwerze i realnym Postgresie z DWOMA prawdziwymi kontami:
+  agent utworzony przez "owner" ma poprawnie zapisanego `OwnerUsername`; próba edycji przez
+  "stranger" — `403` na REST, strona `/agents/{id}` renderuje komunikat odmowy zamiast edytora
+  (0 wystąpień panelu grafu); owner edytuje bez przeszkód (`200`, panel grafu obecny); po
+  dodaniu "stranger" jako współpracownika przez `StudioApiClient.AddCollaboratorAsync`, ten sam
+  dokładnie request, który wcześniej dostał `403`, zwrócił `200` — pełny cykl odmowa→udostępnienie
+  →dostęp potwierdzony na żywych danych, nie tylko w testach z fake'ami.
+
+## 5. Status
+
+✅ Zrealizowane.

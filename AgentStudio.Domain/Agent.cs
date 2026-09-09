@@ -37,11 +37,45 @@ public sealed class Agent
     /// sense, not a dev/test/prod multi-deployment pipeline (this app doesn't have one).</summary>
     public Dictionary<string, string> EnvironmentVariables { get; set; } = new();
 
+    /// <summary>Per-agent access (phase 14, PowerApps-inspired "Share") — the user who created
+    /// this agent. Null for agents that predate this feature; a null owner plus no collaborators
+    /// means only an Admin can edit it (see <see cref="AgentAccess.CanEdit"/>), not "anyone".
+    /// <see cref="OwnerUsername"/> is denormalized purely for display (the agent list/detail
+    /// page showing who owns something shouldn't need a join to the Users table).</summary>
+    public Guid? OwnerId { get; set; }
+    public string? OwnerUsername { get; set; }
+
+    public List<AgentCollaborator> Collaborators { get; set; } = new();
+
     /// <summary>Draft is the AgentVersion with Status=Draft/Validated. Not mapped.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public AgentVersion? Draft => Versions.FirstOrDefault(v => v.Status is AgentVersionStatus.Draft or AgentVersionStatus.Validated);
 
     public List<AgentVersion> Versions { get; set; } = new();
+}
+
+/// <summary>Grants one user edit access to one agent they don't own (phase 14) — a single
+/// permission level (can edit, full stop), not a PowerApps-style Viewer/Editor split: this app's
+/// existing global Editor/Admin roles already cover "can this user edit agents at all", so a
+/// per-agent grant only needs to answer "can this specific user edit this specific agent".
+/// <see cref="Username"/> is denormalized for display, same reasoning as Agent.OwnerUsername.</summary>
+public sealed class AgentCollaborator
+{
+    public required Guid AgentId { get; set; }
+    public required Guid UserId { get; set; }
+    public string Username { get; set; } = "";
+}
+
+/// <summary>Pure access-check helper (phase 14) — no DI, same spirit as ConditionEvaluator.
+/// Requires <see cref="Agent.Collaborators"/> to already be loaded (empty list, not null,
+/// is the "no collaborators" case — a repository that doesn't eager-load it would make every
+/// non-owner, non-admin check silently deny incorrectly, so callers must Include it).</summary>
+public static class AgentAccess
+{
+    public static bool CanEdit(Agent agent, User user) =>
+        user.Role == UserRole.Admin
+        || agent.OwnerId == user.Id
+        || agent.Collaborators.Any(c => c.UserId == user.Id);
 }
 
 public enum AgentVersionStatus

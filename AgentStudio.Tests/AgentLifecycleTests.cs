@@ -14,7 +14,7 @@ public class AgentLifecycleTests
     private static async Task<Guid> CreatePublishedAgentAsync(DbContextOptions<AgentStudioDbContext> options, string? rawKey = null)
     {
         using var db = new AgentStudioDbContext(options);
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
         var (agent, _) = await service.CreateAsync(new Contracts.CreateAgentRequest("a", "d", "i", "p", "m"));
         var dto = new Contracts.WorkflowGraphDto();
         dto.Nodes.Add(new Contracts.WorkflowNodeDto { Id = "s", Type = "start" });
@@ -33,7 +33,7 @@ public class AgentLifecycleTests
         string oldKey;
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             var (agent, raw) = await service.CreateAsync(new Contracts.CreateAgentRequest("a", "d", "i", "p", "m"));
             agentId = agent.Id;
             oldKey = raw;
@@ -42,7 +42,7 @@ public class AgentLifecycleTests
         string newKey;
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             newKey = await service.RegenerateApiKeyAsync(agentId);
             Assert.StartsWith("ask_", newKey);
             Assert.NotEqual(oldKey, newKey);
@@ -50,7 +50,7 @@ public class AgentLifecycleTests
 
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             var agent = await new AgentRepository(db).GetAsync(agentId);
             Assert.False(service.VerifyApiKey(agent!, oldKey));
             Assert.True(service.VerifyApiKey(agent!, newKey));
@@ -62,7 +62,7 @@ public class AgentLifecycleTests
     {
         var options = Options("regen-missing-test");
         using var db = new AgentStudioDbContext(options);
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
         await Assert.ThrowsAsync<KeyNotFoundException>(() => service.RegenerateApiKeyAsync(Guid.NewGuid()));
     }
 
@@ -74,7 +74,7 @@ public class AgentLifecycleTests
 
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             var v = await service.UnpublishAsync(agentId, 1);
             Assert.Equal(AgentVersionStatus.Unpublished, v.Status);
         }
@@ -94,7 +94,7 @@ public class AgentLifecycleTests
         var agentId = await CreatePublishedAgentAsync(options);
 
         using var db = new AgentStudioDbContext(options);
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
         // version 0 is the draft
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.UnpublishAsync(agentId, 0));
     }
@@ -107,7 +107,7 @@ public class AgentLifecycleTests
 
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             // publish a second version so max becomes 2
             var dto = new Contracts.WorkflowGraphDto();
             dto.Nodes.Add(new Contracts.WorkflowNodeDto { Id = "s", Type = "start" });
@@ -120,7 +120,7 @@ public class AgentLifecycleTests
         AgentVersion republished;
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             republished = await service.RepublishAsync(agentId, 1);
             Assert.Equal(3, republished.Version);
             Assert.Equal(AgentVersionStatus.Published, republished.Status);
@@ -144,7 +144,7 @@ public class AgentLifecycleTests
         var agentId = await CreatePublishedAgentAsync(options);
 
         using var db = new AgentStudioDbContext(options);
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.RepublishAsync(agentId, 0));
     }
 
@@ -155,7 +155,7 @@ public class AgentLifecycleTests
         Guid agentId;
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             var (agent, _) = await service.CreateAsync(new Contracts.CreateAgentRequest("a", "d", "i", "p", "m"));
             agentId = agent.Id;
             var dto = new Contracts.WorkflowGraphDto();
@@ -184,7 +184,7 @@ public class AgentLifecycleTests
         Guid agentId;
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             var (agent, _) = await service.CreateAsync(new Contracts.CreateAgentRequest("a", "d", "i", "p", "m"));
             agentId = agent.Id;
             var dto = new Contracts.WorkflowGraphDto();
@@ -198,7 +198,7 @@ public class AgentLifecycleTests
 
         using (var db = new AgentStudioDbContext(options))
         {
-            var service = new AgentService(new AgentRepository(db), new ApiKeyService());
+            var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
             await service.RepublishAsync(agentId, 1);
         }
 

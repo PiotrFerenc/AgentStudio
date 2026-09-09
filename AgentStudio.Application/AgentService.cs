@@ -7,14 +7,20 @@ public sealed class AgentService
 {
     private readonly IAgentRepository _agents;
     private readonly IApiKeyService _apiKeys;
+    private readonly IUserRepository _users;
 
-    public AgentService(IAgentRepository agents, IApiKeyService apiKeys)
+    public AgentService(IAgentRepository agents, IApiKeyService apiKeys, IUserRepository users)
     {
         _agents = agents;
         _apiKeys = apiKeys;
+        _users = users;
     }
 
-    public async Task<(Agent Agent, string RawApiKey)> CreateAsync(CreateAgentRequest request, CancellationToken ct = default)
+    /// <summary>Owner is optional (null for the anonymous-style creation paths tests use directly)
+    /// — every real caller through the Web project passes the current logged-in user, but nothing
+    /// here requires one, since a null owner just means "only an Admin can edit it" (see
+    /// <see cref="AgentAccess"/>), not an error.</summary>
+    public async Task<(Agent Agent, string RawApiKey)> CreateAsync(CreateAgentRequest request, Guid? ownerId = null, string? ownerUsername = null, CancellationToken ct = default)
     {
         var (rawKey, hash) = _apiKeys.Generate();
         var agent = new Agent
@@ -24,7 +30,9 @@ public sealed class AgentService
             SystemInstructions = request.SystemInstructions,
             ModelProviderName = request.ModelProviderName,
             ModelName = request.ModelName,
-            ApiKeyHash = hash
+            ApiKeyHash = hash,
+            OwnerId = ownerId,
+            OwnerUsername = ownerUsername
         };
         agent.Versions.Add(new AgentVersion
         {
@@ -144,6 +152,25 @@ public sealed class AgentService
         var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
         agent.EnvironmentVariables = variables;
         agent.UpdatedAt = DateTimeOffset.UtcNow;
+        await _agents.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Grants a user (looked up by username) edit access to an agent they don't own
+    /// (phase 14). Idempotent — adding an existing collaborator again is a no-op, not a
+    /// duplicate-key error.</summary>
+    public async Task AddCollaboratorAsync(Guid agentId, string username, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        var user = await _users.GetByUsernameAsync(username, ct) ?? throw new KeyNotFoundException($"User '{username}' not found.");
+        if (agent.Collaborators.Any(c => c.UserId == user.Id)) return;
+        agent.Collaborators.Add(new AgentCollaborator { AgentId = agent.Id, UserId = user.Id, Username = user.Username });
+        await _agents.SaveChangesAsync(ct);
+    }
+
+    public async Task RemoveCollaboratorAsync(Guid agentId, Guid userId, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        agent.Collaborators.RemoveAll(c => c.UserId == userId);
         await _agents.SaveChangesAsync(ct);
     }
 
