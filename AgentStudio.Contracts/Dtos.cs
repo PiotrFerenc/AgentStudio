@@ -21,7 +21,6 @@ public sealed record ExecutionLogDto(string ExecutionId, string ConversationId, 
 public sealed record ExecutionStepDto(string NodeId, string NodeType, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Detail, string? Error);
 public sealed record DocumentDto(Guid Id, string FileName, DateTimeOffset CreatedAt, int ChunkCount);
 public sealed record GraphComponentSummary(Guid Id, string Name, string Description, DateTimeOffset CreatedAt);
-public sealed record PendingApprovalSummary(Guid Id, Guid AgentId, string AgentName, int AgentVersion, string NodeId, string Message, DateTimeOffset CreatedAt);
 /// <summary>Name+description only — never the IIntegrator instance itself, so a Blazor
 /// component never holds a reference to the executable service.</summary>
 public sealed record IntegratorSummary(string Name, string Description);
@@ -123,12 +122,6 @@ public static class GraphMapper
                     Key = Prop(n, "key"),
                     Value = Prop(n, "value", "{input}")
                 },
-                "approval" => new ApprovalNode
-                {
-                    Id = n.Id,
-                    Message = Prop(n, "message"),
-                    ResultVariable = Prop(n, "resultVariable", "approvalResult")
-                },
                 _ => throw new InvalidOperationException($"Unknown node type: {n.Type}")
             };
             node.Label = n.Label;
@@ -184,9 +177,6 @@ public static class GraphMapper
                     break;
                 case CollectionSetNode cs:
                     n.Props["key"] = cs.Key; n.Props["value"] = cs.Value;
-                    break;
-                case ApprovalNode ap:
-                    n.Props["message"] = ap.Message; n.Props["resultVariable"] = ap.ResultVariable;
                     break;
             }
             dto.Nodes.Add(n);

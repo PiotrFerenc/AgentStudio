@@ -40,13 +40,6 @@ public class ScheduledRunnerTests
         public Task<List<AgentCollectionEntry>> ListAsync(Guid agentId, CancellationToken ct = default) => Task.FromResult(new List<AgentCollectionEntry>());
         public Task DeleteAsync(Guid agentId, string key, CancellationToken ct = default) => Task.CompletedTask;
     }
-    private sealed class FakePendingApprovalRepository : IPendingApprovalRepository
-    {
-        public Task<List<PendingApproval>> ListPendingAsync(CancellationToken ct = default) => Task.FromResult(new List<PendingApproval>());
-        public Task<PendingApproval?> GetAsync(Guid id, CancellationToken ct = default) => Task.FromResult<PendingApproval?>(null);
-        public Task AddAsync(PendingApproval approval, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-    }
     private sealed class FakeLogWriter : IExecutionLogWriter
     {
         public ExecutionLog Start(string conversationId, Guid agentId, int agentVersion) => new() { ExecutionId = Guid.NewGuid().ToString(), ConversationId = conversationId, AgentId = agentId, AgentVersion = agentVersion };
@@ -97,7 +90,7 @@ public class ScheduledRunnerTests
         var fakeProviders = new FakeProviderRepository();
         fakeProviders.Providers.Add(new ModelProviderConfig { Name = "p", BaseUrl = "http://localhost:11434" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), fakeAgents, fakeProviders, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore(), new FakePendingApprovalRepository());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), fakeAgents, fakeProviders, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
 
         var services = new ServiceCollection()
             .AddSingleton<IAgentRepository>(fakeAgents)

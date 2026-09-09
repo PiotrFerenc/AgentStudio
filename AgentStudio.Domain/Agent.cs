@@ -383,21 +383,6 @@ public sealed class CollectionSetNode : WorkflowNode
     public string Value { get; set; } = "{input}";
 }
 
-/// <summary>Human-in-the-loop pause (phase 13, PowerApps/Power-Automate-inspired "Approvals").
-/// Reaching this node suspends the run — <see cref="WorkflowRunner"/> persists a
-/// <see cref="PendingApproval"/> snapshot and stops, instead of continuing synchronously.
-/// Requires exactly two outgoing edges, branch "approved"/"rejected" (same shape as
-/// ConditionNode's true/false), resolved later by <c>WorkflowRunner.ResumeApprovalAsync</c>
-/// once someone decides on the <c>/approvals</c> page. <see cref="ResultVariable"/> isn't used
-/// by the approval node itself (the decision is encoded by which branch resumes), but is
-/// reserved for a future "write the decision to a variable too" without a shape change.</summary>
-public sealed class ApprovalNode : WorkflowNode
-{
-    public override string Type => "approval";
-    public string Message { get; set; } = "";
-    public string ResultVariable { get; set; } = "approvalResult";
-}
-
 /// <summary>Calls a registered IIntegrator by name (phase 4) — the extension point for custom
 /// integrations (GitLab, Jira, ...). Config values support {variables.x}/{input} placeholders,
 /// expanded before being handed to the integrator — same rigor as DatabaseQueryNode.Parameters.

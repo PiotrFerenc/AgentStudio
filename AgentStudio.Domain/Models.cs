@@ -30,27 +30,6 @@ public sealed class GraphComponent
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public enum ApprovalStatus { Pending, Approved, Rejected }
-
-/// <summary>A suspended run's resume point (phase 13) — created when <see cref="WorkflowRunner"/>
-/// reaches an <see cref="ApprovalNode"/>. Holds everything needed to continue the graph forward
-/// later: which node to resume from, and the full variable snapshot at the moment it paused
-/// (message history is deliberately not snapshotted — a resumed run is a fresh, independent
-/// execution, not a replayed conversation; a PromptNode after an approval sees no prior turns).</summary>
-public sealed class PendingApproval
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public required Guid AgentId { get; set; }
-    public required int AgentVersion { get; set; }
-    public required string NodeId { get; set; }
-    public string Message { get; set; } = "";
-    public Dictionary<string, string> Variables { get; set; } = new();
-    public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset? DecidedAt { get; set; }
-    public string? DecidedBy { get; set; }
-}
-
 /// <summary>An uploaded, indexed source document for RAG (phase 2). Raw bytes live on the local
 /// filesystem at StoragePath; DocumentChunk rows hold the searchable text + embeddings.</summary>
 public sealed class Document

@@ -21,7 +21,6 @@ public sealed class AgentStudioDbContext : DbContext
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
     public DbSet<AgentCollectionEntry> AgentCollectionEntries => Set<AgentCollectionEntry>();
     public DbSet<GraphComponent> GraphComponents => Set<GraphComponent>();
-    public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
     public DbSet<AgentCollaborator> AgentCollaborators => Set<AgentCollaborator>();
 
     /// <summary>
@@ -140,13 +139,6 @@ public sealed class AgentStudioDbContext : DbContext
             e.HasKey(c => c.Id);
             e.Property(c => c.Name).HasMaxLength(200).IsRequired();
             e.Property(c => c.GraphJson).HasColumnType("jsonb");
-        });
-
-        modelBuilder.Entity<PendingApproval>(e =>
-        {
-            e.HasKey(a => a.Id);
-            e.HasIndex(a => a.Status);
-            e.Property(a => a.Variables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
         });
     }
 }

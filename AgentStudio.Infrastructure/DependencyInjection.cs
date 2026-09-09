@@ -38,7 +38,6 @@ public static class DependencyInjection
         services.AddScoped<IAgentRepository, AgentRepository>();
         services.AddScoped<IProviderRepository, ProviderRepository>();
         services.AddScoped<IGraphComponentRepository, GraphComponentRepository>();
-        services.AddScoped<IPendingApprovalRepository, PendingApprovalRepository>();
         services.AddScoped<IExecutionLogRepository, ExecutionLogRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<UserService>();

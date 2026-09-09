@@ -109,13 +109,6 @@
                 <button @onclick='() => _pendingBranch = "false"' @onclick:stopPropagation class='@(_pendingBranch == "false" ? "active" : "")'>false</button>
             </div>
         }
-        @if (_linkSource.Type == "approval")
-        {
-            <div class="link-branch-picker">
-                <button @onclick='() => _pendingBranch = "approved"' @onclick:stopPropagation class='@(_pendingBranch == "approved" ? "active" : "")'>approved</button>
-                <button @onclick='() => _pendingBranch = "rejected"' @onclick:stopPropagation class='@(_pendingBranch == "rejected" ? "active" : "")'>rejected</button>
-            </div>
-        }
     }
 </div>
 
@@ -224,7 +217,7 @@
     private string _newComponentName = "";
     private string _insertComponentId = "";
 
-    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "jsonParse", "expression", "collectionGet", "collectionSet", "approval", "integrator", "parallel", "join", "end" };
+    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "jsonParse", "expression", "collectionGet", "collectionSet", "integrator", "parallel", "join", "end" };
     private const double NodeW = 140, NodeH = 56, DragThreshold = 4;
 
     private ElementReference _canvasRef;
@@ -334,9 +327,7 @@
     {
         if (_linkSource is not null && _linkSource.Id != node.Id)
         {
-            var branch = _linkSource.Type == "condition" ? (_pendingBranch ?? "true")
-                : _linkSource.Type == "approval" ? (_pendingBranch ?? "approved")
-                : null;
+            var branch = _linkSource.Type == "condition" ? (_pendingBranch ?? "true") : null;
             // A parallel split's whole point is multiple unconditional edges from one source —
             // append instead of replacing. Every other node type keeps at most one edge per
             // source+branch, so linking again replaces the old target rather than duplicating.
@@ -384,7 +375,7 @@
     {
         await MeasureCanvas(); // re-measure at gesture start — page may have scrolled since last render
         _linkSource = node;
-        _pendingBranch = node.Type == "condition" ? "true" : node.Type == "approval" ? "approved" : null;
+        _pendingBranch = node.Type == "condition" ? "true" : null;
         _pendingDrag = null;
         _dragging = null;
         _mouseX = node.X + NodeW;
@@ -511,7 +502,6 @@
             case "expression": node.Props["formula"] = ""; node.Props["resultVariable"] = "result"; break;
             case "collectionGet": node.Props["key"] = ""; node.Props["defaultValue"] = ""; node.Props["resultVariable"] = "collectionResult"; break;
             case "collectionSet": node.Props["key"] = ""; node.Props["value"] = "{input}"; break;
-            case "approval": node.Props["message"] = ""; node.Props["resultVariable"] = "approvalResult"; break;
             case "integrator": node.Props["integratorName"] = ""; node.Props["resultVariable"] = "integratorResult"; break;
             case "end": node.Props["outputTemplate"] = ""; break;
         }
