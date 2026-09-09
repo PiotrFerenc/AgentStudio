@@ -5,6 +5,13 @@ using AgentStudio.Domain;
 
 namespace AgentStudio.Application;
 
+/// <summary>Emits a chunk of assistant-visible text. The top-level run writes it straight to the
+/// live output channel; a parallel branch instead buffers it so concurrent branches' output
+/// never interleaves — the owning ParallelNode flushes each branch's buffer, in declared edge
+/// order, once all branches have finished. Top-level (not nested in WorkflowRunner) so
+/// NodeExecutors.cs's NodeExecutionContext can reference it too.</summary>
+internal delegate Task ChunkSink(string text, CancellationToken ct);
+
 /// <summary>
 /// Executes a workflow graph from Start, streaming LLM/message output.
 /// Phase 1: sequential + if/else branching. Phase 2 adds loops (cycles + a per-version step
@@ -22,6 +29,14 @@ public sealed class WorkflowRunner
     private readonly IDatabaseQueryExecutor _databaseQuery;
     private readonly IEnumerable<IIntegrator> _integrators;
     private readonly IAgentCollectionStore _collections;
+
+    /// <summary>"Leaf" node executors (see NodeExecutors.cs) keyed by the WorkflowNode subclass
+    /// they handle — built once from this runner's own injected services, not DI-registered
+    /// separately, so the constructor below stays exactly as every existing caller/test already
+    /// expects. Covers every node whose next edge is always the single unconditional one
+    /// (NextByEdge with no branch); Start/End/Condition/Parallel/Join/SubAgent stay in
+    /// RunSegmentAsync's switch since their control flow isn't uniform like that.</summary>
+    private readonly Dictionary<Type, INodeExecutor> _executorsByType;
 
     /// <summary>Hard cap on agent-calling-agent nesting (phase 3, SubAgentNode) — the only guard
     /// against a cycle across agents (A calls B calls A...), since that can't be seen by the
@@ -48,15 +63,22 @@ public sealed class WorkflowRunner
         _databaseQuery = databaseQuery;
         _integrators = integrators;
         _collections = collections;
+
+        _executorsByType = new List<INodeExecutor>
+        {
+            new HttpNodeExecutor(_http),
+            new DocumentSearchNodeExecutor(_documentSearch, _providers),
+            new DatabaseQueryNodeExecutor(_databaseQuery),
+            new JsonParseNodeExecutor(),
+            new ExpressionNodeExecutor(),
+            new CollectionGetNodeExecutor(_collections),
+            new CollectionSetNodeExecutor(_collections),
+            new IntegratorNodeExecutor(_integrators),
+            new PromptNodeExecutor(_chatClients, _providers),
+        }.ToDictionary(e => e.NodeType);
     }
 
     public string? LastExecutionId { get; private set; }
-
-    /// <summary>Emits a chunk of assistant-visible text. The top-level run writes it straight to
-    /// the live output channel; a parallel branch instead buffers it so concurrent branches'
-    /// output never interleaves — the owning ParallelNode flushes each branch's buffer, in
-    /// declared edge order, once all branches have finished.</summary>
-    private delegate Task ChunkSink(string text, CancellationToken ct);
 
     private sealed class StepCounter
     {
@@ -299,107 +321,6 @@ public sealed class WorkflowRunner
                     current = NextByEdge(graph, condition.Id, result ? "true" : "false");
                     break;
                 }
-                case HttpNode http:
-                {
-                    await RunStepAsync(log, http, async () =>
-                    {
-                        var result = await _http.ExecuteAsync(Expand(http, variables), variables, ct);
-                        variables[http.ResultVariable] = result;
-                        return $"http {http.Method} {http.Url}: {result.Length} chars";
-                    });
-                    current = NextByEdge(graph, http.Id, branch: null);
-                    break;
-                }
-                case DocumentSearchNode search:
-                {
-                    await RunStepAsync(log, search, async () =>
-                    {
-                        var query = ExpandTemplate(search.Query, variables);
-                        var searchProvider = await ResolveProviderAsync(search.ProviderName, provider, ct);
-                        var chunks = await _documentSearch.SearchAsync(agent.Id, query, search.TopK, searchProvider, ct);
-                        variables[search.ResultVariable] = string.Join("\n\n", chunks);
-                        return $"documentSearch: {chunks.Count} chunks";
-                    });
-                    current = NextByEdge(graph, search.Id, branch: null);
-                    break;
-                }
-                case DatabaseQueryNode query:
-                {
-                    await RunStepAsync(log, query, async () =>
-                    {
-                        var result = await _databaseQuery.ExecuteAsync(query, variables, ct);
-                        variables[query.ResultVariable] = result;
-                        return $"databaseQuery {query.ConnectionName}: {result.Length} chars";
-                    });
-                    current = NextByEdge(graph, query.Id, branch: null);
-                    break;
-                }
-                case JsonParseNode jsonParse:
-                {
-                    await RunStepAsync(log, jsonParse, () =>
-                    {
-                        var inputText = ExpandTemplate(jsonParse.Input, variables);
-                        var result = JsonPathExtractor.Extract(inputText, jsonParse.Path);
-                        variables[jsonParse.ResultVariable] = result;
-                        return Task.FromResult<string?>($"jsonParse {jsonParse.Path}: {result.Length} chars");
-                    });
-                    current = NextByEdge(graph, jsonParse.Id, branch: null);
-                    break;
-                }
-                case ExpressionNode expr:
-                {
-                    await RunStepAsync(log, expr, () =>
-                    {
-                        var result = FormulaEvaluator.Evaluate(expr.Formula, variables);
-                        variables[expr.ResultVariable] = result;
-                        return Task.FromResult<string?>($"expression: {result}");
-                    });
-                    current = NextByEdge(graph, expr.Id, branch: null);
-                    break;
-                }
-                case CollectionGetNode cget:
-                {
-                    await RunStepAsync(log, cget, async () =>
-                    {
-                        var key = ExpandTemplate(cget.Key, variables);
-                        if (string.IsNullOrWhiteSpace(key))
-                            throw new InvalidOperationException("collectionGet: Key is empty.");
-                        var stored = await _collections.GetAsync(agent.Id, key, ct);
-                        var value = stored ?? ExpandTemplate(cget.DefaultValue, variables);
-                        variables[cget.ResultVariable] = value;
-                        return $"collectionGet {key}: {(stored is null ? "default" : "stored")} value";
-                    });
-                    current = NextByEdge(graph, cget.Id, branch: null);
-                    break;
-                }
-                case CollectionSetNode cset:
-                {
-                    await RunStepAsync(log, cset, async () =>
-                    {
-                        var key = ExpandTemplate(cset.Key, variables);
-                        if (string.IsNullOrWhiteSpace(key))
-                            throw new InvalidOperationException("collectionSet: Key is empty.");
-                        var value = ExpandTemplate(cset.Value, variables);
-                        await _collections.SetAsync(agent.Id, key, value, ct);
-                        return $"collectionSet {key}: {value.Length} chars";
-                    });
-                    current = NextByEdge(graph, cset.Id, branch: null);
-                    break;
-                }
-                case IntegratorNode integrator:
-                {
-                    await RunStepAsync(log, integrator, async () =>
-                    {
-                        var impl = _integrators.FirstOrDefault(i => i.Name == integrator.IntegratorName)
-                            ?? throw new InvalidOperationException($"Integrator '{integrator.IntegratorName}' is not registered.");
-                        var expandedConfig = integrator.Config.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables));
-                        var result = await impl.ExecuteAsync(expandedConfig, variables, ct);
-                        variables[integrator.ResultVariable] = result;
-                        return $"integrator {integrator.IntegratorName}: {result.Length} chars";
-                    });
-                    current = NextByEdge(graph, integrator.Id, branch: null);
-                    break;
-                }
                 case SubAgentNode sub:
                 {
                     await RunStepAsync(log, sub, async () =>
@@ -435,33 +356,6 @@ public sealed class WorkflowRunner
                         return $"subAgent {targetAgent.Name}: {buffer.Length} chars";
                     });
                     current = NextByEdge(graph, sub.Id, branch: null);
-                    break;
-                }
-                case PromptNode prompt:
-                {
-                    var buffer = new StringBuilder();
-                    await RunStepAsync(log, prompt, async () =>
-                    {
-                        var promptText = ExpandTemplate(prompt.PromptTemplate, variables);
-                        List<ChatMessage> messages;
-                        lock (conversation) messages = new List<ChatMessage>(conversation.Messages);
-                        if (!string.IsNullOrWhiteSpace(promptText))
-                            messages.Add(new ChatMessage { Role = "user", Content = promptText });
-
-                        var promptProvider = await ResolveProviderAsync(prompt.ProviderName, provider, ct);
-                        var modelName = string.IsNullOrWhiteSpace(prompt.ModelName) ? agent.ModelName : prompt.ModelName;
-                        var client = _chatClients.Create(promptProvider, modelName);
-                        await foreach (var chunk in client.StreamReplyAsync(messages, ct))
-                        {
-                            buffer.Append(chunk);
-                            await emit(chunk, ct);
-                        }
-
-                        variables[prompt.ResultVariable] = buffer.ToString();
-                        lock (conversation) conversation.Messages.Add(new ChatMessage { Role = "assistant", Content = buffer.ToString() });
-                        return $"llm: {buffer.Length} chars";
-                    });
-                    current = NextByEdge(graph, prompt.Id, branch: null);
                     break;
                 }
                 case ParallelNode split:
@@ -507,7 +401,15 @@ public sealed class WorkflowRunner
                     break;
                 }
                 default:
-                    throw new InvalidOperationException($"Unsupported node type: {current.Type}");
+                {
+                    if (!_executorsByType.TryGetValue(current.GetType(), out var executor))
+                        throw new InvalidOperationException($"Unsupported node type: {current.Type}");
+                    var node = current;
+                    var context = new NodeExecutionContext(variables, conversation, agent, provider, emit, ct);
+                    await RunStepAsync(log, node, () => executor.ExecuteAsync(node, context));
+                    current = NextByEdge(graph, node.Id, branch: null);
+                    break;
+                }
             }
         }
     }
@@ -544,7 +446,8 @@ public sealed class WorkflowRunner
         graph.Nodes.OfType<StartNode>().FirstOrDefault()?.Id
         ?? throw new InvalidOperationException("Workflow has no Start node.");
 
-    private static HttpNode Expand(HttpNode node, IReadOnlyDictionary<string, string> variables) => new()
+    /// <summary>internal (not private) — HttpNodeExecutor (NodeExecutors.cs) calls this too.</summary>
+    internal static HttpNode Expand(HttpNode node, IReadOnlyDictionary<string, string> variables) => new()
     {
         Id = node.Id,
         Method = node.Method,
@@ -556,16 +459,6 @@ public sealed class WorkflowRunner
         Headers = node.Headers.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables)),
         QueryParameters = node.QueryParameters.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables))
     };
-
-    /// <summary>PromptNode/DocumentSearchNode's per-node provider override (empty = inherit the
-    /// run's own provider, resolved once from the agent's ModelProviderName). A set-but-unknown
-    /// override name fails clearly rather than silently falling back.</summary>
-    private async Task<ModelProviderConfig> ResolveProviderAsync(string? overrideProviderName, ModelProviderConfig fallback, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(overrideProviderName)) return fallback;
-        return await _providers.GetByNameAsync(overrideProviderName, ct)
-            ?? throw new InvalidOperationException($"Provider '{overrideProviderName}' is not configured.");
-    }
 
     private static WorkflowNode? NextByEdge(WorkflowGraph graph, string sourceId, string? branch)
     {
