@@ -82,8 +82,9 @@ app.UseRateLimiter();
 app.UseAntiforgery();
 
 // ============================
-// Auth (cookie-based, phase 2). Login/setup are plain form posts so Set-Cookie lands on a
-// real HTTP response — not routed through a Blazor Interactive Server circuit.
+// Auth (cookie-based, phase 2). Login is a plain form post so Set-Cookie lands on a real HTTP
+// response — not routed through a Blazor Interactive Server circuit. No /setup: accounts are
+// entirely appsettings.json's "Users" array now, nothing to bootstrap here.
 // ============================
 
 var auth = app.MapGroup("/auth").DisableAntiforgery().AllowAnonymous();
@@ -113,21 +114,6 @@ auth.MapPost("/logout", async (HttpContext http) =>
     return Results.Redirect("/login");
 });
 
-auth.MapPost("/setup", async (HttpContext http, UserService users, CancellationToken ct) =>
-{
-    if (await users.AnyUsersAsync(ct))
-        return Results.Redirect("/login");
-
-    var form = await http.Request.ReadFormAsync(ct);
-    var username = form["username"].ToString();
-    var password = form["password"].ToString();
-    if (string.IsNullOrWhiteSpace(username) || password.Length < 8)
-        return Results.Redirect("/setup?error=1");
-
-    await users.CreateAsync(username, password, UserRole.Admin, ct);
-    return Results.Redirect("/login");
-}).RequireRateLimiting(AuthRateLimiting.PolicyName);
-
 // ============================
 // Studio management API (cookie-authenticated — phase 2)
 // ============================
@@ -135,15 +121,7 @@ auth.MapPost("/setup", async (HttpContext http, UserService users, CancellationT
 var api = app.MapGroup("/api").DisableAntiforgery().RequireAuthorization();
 
 api.MapGet("/providers", async (IProviderRepository repo, CancellationToken ct) =>
-    Results.Ok((await repo.ListAsync(ct)).Select(p => new ProviderDto(p.Id, p.Name, p.BaseUrl, p.DefaultModel, p.ApiKey is not null, p.EmbeddingModel, p.IsFromConfig, p.Headers))));
-
-api.MapPost("/providers", async (CreateProviderRequest req, IProviderRepository repo, CancellationToken ct) =>
-{
-    var provider = new ModelProviderConfig { Name = req.Name, BaseUrl = req.BaseUrl, DefaultModel = req.DefaultModel, ApiKey = req.ApiKey, EmbeddingModel = req.EmbeddingModel, Headers = req.Headers ?? new() };
-    await repo.AddAsync(provider, ct);
-    await repo.SaveChangesAsync(ct);
-    return Results.Created($"/api/providers/{provider.Id}", new ProviderDto(provider.Id, provider.Name, provider.BaseUrl, provider.DefaultModel, provider.ApiKey is not null, provider.EmbeddingModel, provider.IsFromConfig, provider.Headers));
-});
+    Results.Ok((await repo.ListAsync(ct)).Select(p => new ProviderDto(p.Id, p.Name, p.BaseUrl, p.DefaultModel, p.ApiKey is not null, p.EmbeddingModel, p.Headers))));
 
 api.MapGet("/agents", async (IAgentRepository repo, CancellationToken ct) =>
     Results.Ok((await repo.ListAsync(ct)).Select(a => new AgentDto(a.Id, a.Name, a.Description, a.SystemInstructions, a.ModelProviderName, a.ModelName, a.CreatedAt))));
@@ -429,8 +407,8 @@ app.Run();
 /// <summary>Exposes the top-level Program for WebApplicationFactory&lt;Program&gt; in tests.</summary>
 public partial class Program;
 
-/// <summary>Rate limiting for the anonymous /auth/login and /auth/setup endpoints — no lockout
-/// mechanism existed before this (see DEPLOYMENT.md's security note). Partitioned per client IP
+/// <summary>Rate limiting for the anonymous /auth/login endpoint — no lockout mechanism existed
+/// before this (see DEPLOYMENT.md's security note). Partitioned per client IP
 /// so one abusive client can't exhaust attempts for everyone; falls back to the per-request
 /// TraceIdentifier when there's no real IP (e.g. an in-memory test server), so unrelated
 /// requests never share a single bucket just because the transport can't report an address.</summary>

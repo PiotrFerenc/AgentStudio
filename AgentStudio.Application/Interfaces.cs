@@ -10,12 +10,12 @@ public interface IAgentRepository
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 
+/// <summary>Model providers are defined entirely in appsettings.json's "ModelProviders" array
+/// (no database table — see ProviderRepository) since /providers dropped manual add/edit.</summary>
 public interface IProviderRepository
 {
     Task<ModelProviderConfig?> GetByNameAsync(string name, CancellationToken ct = default);
     Task<List<ModelProviderConfig>> ListAsync(CancellationToken ct = default);
-    Task AddAsync(ModelProviderConfig provider, CancellationToken ct = default);
-    Task SaveChangesAsync(CancellationToken ct = default);
 }
 
 /// <summary>Saved reusable graph fragments (phase 10) — global, not per-agent, since the whole
@@ -67,15 +67,14 @@ public interface IExecutionLogWriter
     Task CompleteAsync(ExecutionLog log, string? error = null, CancellationToken ct = default);
 }
 
+/// <summary>User accounts are defined entirely in appsettings.json's "Users" array (no database
+/// table — see UserRepository) since /users dropped manual add/edit/delete and /setup is gone.</summary>
 public interface IUserRepository
 {
     Task<User?> GetAsync(Guid id, CancellationToken ct = default);
     Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default);
     Task<List<User>> ListAsync(CancellationToken ct = default);
     Task<bool> AnyAsync(CancellationToken ct = default);
-    Task AddAsync(User user, CancellationToken ct = default);
-    Task DeleteAsync(User user, CancellationToken ct = default);
-    Task SaveChangesAsync(CancellationToken ct = default);
 }
 
 public interface IDocumentRepository

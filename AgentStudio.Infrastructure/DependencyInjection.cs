@@ -11,11 +11,6 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddAgentStudioInfrastructure(this IServiceCollection services, IConfiguration config)
     {
-        // Must happen before anything touches AgentStudioDbContext's model (ModelProviderConfig.
-        // ApiKey's ValueConverter reads this static key) — see SecretProtector's doc comment for
-        // why it's a static holder and not a DI-injected service.
-        SecretProtector.Configure(config["Secrets:EncryptionKey"]);
-
         services.AddDbContext<AgentStudioDbContext>(options =>
         {
             var connectionString = config.GetConnectionString("AgentStudio");

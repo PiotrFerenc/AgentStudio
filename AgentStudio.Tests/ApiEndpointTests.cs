@@ -37,9 +37,35 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
             // providers in one service collection throws at DbContext resolution time).
             builder.ConfigureAppConfiguration((_, config) =>
             {
+                // Users/ModelProviders are entirely config-defined now (no DB table) — pre-seed
+                // the fixed set of accounts and providers every test in this class needs.
+                // "provider-x" (CreateAgentAsync's default providerName) is deliberately absent:
+                // Conversation_with_valid_key_but_no_provider_returns_400 relies on it not
+                // existing.
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:AgentStudio"] = "InMemory"
+                    ["ConnectionStrings:AgentStudio"] = "InMemory",
+                    ["Users:0:Username"] = AdminUsername,
+                    ["Users:0:Password"] = AdminPassword,
+                    ["Users:0:Role"] = "Admin",
+                    ["Users:1:Username"] = "eve",
+                    ["Users:1:Password"] = "editor-password-123",
+                    ["Users:1:Role"] = "Editor",
+                    ["Users:2:Username"] = "frank",
+                    ["Users:2:Password"] = "editor-password-123",
+                    ["Users:2:Role"] = "Editor",
+                    ["Users:3:Username"] = "grace",
+                    ["Users:3:Password"] = "editor-password-123",
+                    ["Users:3:Role"] = "Editor",
+                    ["ModelProviders:0:Name"] = "provider-stream",
+                    ["ModelProviders:0:BaseUrl"] = "http://unused.invalid",
+                    ["ModelProviders:0:DefaultModel"] = "model-x",
+                    ["ModelProviders:1:Name"] = "provider-frank",
+                    ["ModelProviders:1:BaseUrl"] = "http://unused.invalid",
+                    ["ModelProviders:1:DefaultModel"] = "model-x",
+                    ["ModelProviders:2:Name"] = "provider-grace",
+                    ["ModelProviders:2:BaseUrl"] = "http://unused.invalid",
+                    ["ModelProviders:2:DefaultModel"] = "model-x",
                 });
             });
             builder.ConfigureServices(services =>
@@ -61,14 +87,8 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
 
     public async Task InitializeAsync()
     {
-        // Idempotent: the Factory's DB (and its admin account) is shared across this class's
-        // tests, but each test gets a fresh HttpClient/cookie jar, so each logs in separately.
-        var credentials = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["username"] = AdminUsername,
-            ["password"] = AdminPassword
-        });
-        await _client.PostAsync("/auth/setup", credentials);
+        // The admin account is config-defined (Factory.ConfigureWebHost) — each test just logs
+        // in with a fresh HttpClient/cookie jar.
         var login = await _client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["username"] = AdminUsername,
@@ -90,16 +110,12 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
 
     private sealed record CreateAgentResponse(AgentDto Agent, string ApiKey);
 
-    /// <summary>Creates a fresh non-admin Editor and returns a logged-in client for them —
-    /// distinct from the shared admin _client, needed to exercise per-agent access control
-    /// (phase 14), since an Admin bypasses ownership entirely.</summary>
+    /// <summary>Logs in as one of the config-defined Editor accounts (eve/frank/grace — see
+    /// Factory.ConfigureWebHost) and returns a logged-in client for them — distinct from the
+    /// shared admin _client, needed to exercise per-agent access control (phase 14), since an
+    /// Admin bypasses ownership entirely.</summary>
     private async Task<HttpClient> LoginAsNewEditorAsync(string username)
     {
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var users = scope.ServiceProvider.GetRequiredService<UserService>();
-            await users.CreateAsync(username, "editor-password-123", UserRole.Editor);
-        }
         var client = _factory.CreateClient();
         var login = await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -244,10 +260,10 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
     [Fact]
     public async Task Stream_endpoint_emits_sse_events_end_to_end()
     {
-        // A Message node never calls the chat client, but ResolveRuntimeAsync still requires
-        // the agent's provider to be configured, so register one (its URL is never dialed).
-        // Uses a name distinct from "provider-x" so it doesn't leak into the "no provider" test.
-        await _client.PostAsJsonAsync("/api/providers", new CreateProviderRequest("provider-stream", "http://unused.invalid", "model-x", null));
+        // A Message node never calls the chat client, but ResolveRuntimeAsync still requires the
+        // agent's provider to be configured — "provider-stream" is config-defined (Factory), its
+        // URL is never dialed. Distinct from "provider-x" so it doesn't leak into the "no
+        // provider" test.
         var (id, apiKey) = await CreateAgentAsync("stream-flow", "provider-stream");
         var graph = new WorkflowGraphDto();
         graph.Nodes.Add(new WorkflowNodeDto { Id = "s", Type = "start" });
@@ -294,7 +310,6 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
     public async Task Owner_can_edit_their_own_agent_even_without_admin_role()
     {
         var frank = await LoginAsNewEditorAsync("frank");
-        await frank.PostAsJsonAsync("/api/providers", new CreateProviderRequest("provider-frank", "http://unused.invalid", "model-x", null));
         var createResp = await frank.PostAsJsonAsync("/api/agents", new CreateAgentRequest("franks-agent", "d", "i", "provider-frank", "model-x"));
         createResp.EnsureSuccessStatusCode();
         var created = await createResp.Content.ReadFromJsonAsync<CreateAgentResponse>();
@@ -312,7 +327,6 @@ public sealed class ApiEndpointTests : IClassFixture<ApiEndpointTests.Factory>, 
     public async Task Admin_can_edit_an_agent_owned_by_someone_else()
     {
         var grace = await LoginAsNewEditorAsync("grace");
-        await grace.PostAsJsonAsync("/api/providers", new CreateProviderRequest("provider-grace", "http://unused.invalid", "model-x", null));
         var createResp = await grace.PostAsJsonAsync("/api/agents", new CreateAgentRequest("graces-agent", "d", "i", "provider-grace", "model-x"));
         var created = await createResp.Content.ReadFromJsonAsync<CreateAgentResponse>();
 

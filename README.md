@@ -390,21 +390,24 @@ backup, smoke test po wdrożeniu).
 ## Logowanie (faza 2)
 
 Panel studio (`/`, `/agents/*`, `/providers`, `/users`, `/database-connections`, `/analytics`) i zarządcze `/api/...` wymagają
-zalogowania — konta z rolami Admin/Editor, cookie auth. Pierwsza wizyta na świeżej instalacji
-przekierowuje `/` → `/login` → `/setup`, gdzie zakłada się pierwsze konto Admin. Kolejne konta
-zarządzane są na `/users` (tylko Admin). Runtime endpointy agentów
-(`/api/agents/{id}/versions/{v}/conversations`, `/stream`), `/chat/*` i `/widget/*` **zostają
-publiczne** — chroni je wyłącznie `X-Agent-Api-Key`, bez zmian względem fazy 1.
+zalogowania — konta z rolami Admin/Editor, cookie auth. **Konta i providery to wyłącznie
+appsettings.json** — brak tabeli w bazie, brak `/setup`, brak ręcznego dodawania w UI. `/users` i
+`/providers` to teraz listy tylko do odczytu; dodanie/zmiana/usunięcie konta lub providera to
+edycja pliku (`"Users"`/`"ModelProviders"`) i restart. Pusta lista `Users` → `/login` pokazuje
+komunikat "brak skonfigurowanych użytkowników" zamiast jakiegokolwiek bootstrapu. Runtime
+endpointy agentów (`/api/agents/{id}/versions/{v}/conversations`, `/stream`), `/chat/*` i
+`/widget/*` **zostają publiczne** — chroni je wyłącznie `X-Agent-Api-Key`, bez zmian względem
+fazy 1.
 
-`/auth/login` i `/auth/setup` mają rate limit: 5 żądań/minutę per IP klienta (429 powyżej limitu,
+`/auth/login` ma rate limit: 5 żądań/minutę per IP klienta (429 powyżej limitu,
 `AuthRateLimiting` w `Program.cs`, wbudowany rate limiter ASP.NET Core — zero nowych zależności).
 To ochrona per-IP, nie lockout konta — za reverse proxy bez skonfigurowanego zaufania do
 `X-Forwarded-For` limit dzieli się między wszystkich użytkowników za tym proxy (patrz
 DEPLOYMENT.md).
 
-`ModelProviderConfig.ApiKey` szyfrowany w bazie (AES-256-GCM, `SecretProtector` jako EF
-`ValueConverter`) po ustawieniu klucza — `Secrets:EncryptionKey` w configu/env, opcjonalne (bez
-klucza zapis pozostaje plaintext, jak dziś). Szczegóły i generowanie klucza — DEPLOYMENT.md.
+`ModelProviderConfig.ApiKey`/`Users` hasła w pliku configu — bez szyfrowania w locie (nie ma już
+kolumny w bazie do szyfrowania). Dla `Users` użyj `PasswordHash` zamiast `Password` w produkcji;
+szczegóły — DEPLOYMENT.md.
 
 ## RAG i dokumenty (faza 2)
 
@@ -432,7 +435,7 @@ Dokumenty żyją per agent — wyszukiwanie nie przeszukuje dokumentów innych a
 
 ## Zakres fazy 2 (zrealizowany)
 
-- ✅ Logowanie użytkowników z rolami Admin/Editor (cookie auth, bootstrap `/setup`)
+- ✅ Logowanie użytkowników z rolami Admin/Editor (cookie auth, konta w appsettings.json)
 - ✅ Trwała pamięć rozmów (Postgres, bez auto-wygasania — przeżywa restart aplikacji)
 - ✅ Pętle w workflow (cykle dozwolone, `MaxSteps` per agent, licznik przez `{variables.x+1}`)
 - ✅ Równoległość (fan-out/fan-in — węzły `parallel`/`join`, gałęzie równoległe, deterministyczny merge)

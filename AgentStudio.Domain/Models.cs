@@ -1,5 +1,8 @@
 namespace AgentStudio.Domain;
 
+/// <summary>A model provider — always sourced from appsettings.json's "ModelProviders" array
+/// (see ProviderRepository), never persisted. Id is deterministic (DeterministicGuid.From the
+/// name) since there's nowhere to persist a random one.</summary>
 public sealed class ModelProviderConfig
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -20,13 +23,6 @@ public sealed class ModelProviderConfig
     public Dictionary<string, string> Headers { get; set; } = new();
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-
-    /// <summary>True when this provider came from appsettings.json ("ModelProviders") rather than
-    /// the database — not persisted (see ProviderRepository), purely a UI/read hint so the studio
-    /// can show where a provider is defined and hide edit/delete for config-sourced rows.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
-    public bool IsFromConfig { get; set; }
 }
 
 /// <summary>A saved, reusable fragment of a workflow graph (phase 10, PowerApps-inspired

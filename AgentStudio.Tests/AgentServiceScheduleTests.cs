@@ -3,6 +3,7 @@ using AgentStudio.Contracts;
 using AgentStudio.Domain;
 using AgentStudio.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace AgentStudio.Tests;
@@ -16,7 +17,7 @@ public class AgentServiceScheduleTests
     {
         var db = NewDb(dbName);
         var repo = new AgentRepository(db);
-        var service = new AgentService(repo, new ApiKeyService(), new UserRepository(db));
+        var service = new AgentService(repo, new ApiKeyService(), new UserRepository(Options.Create(new List<UserConfig>())));
         var (agent, _) = await service.CreateAsync(new CreateAgentRequest("t", "", "", "p", "m"));
         return (service, agent);
     }
@@ -70,7 +71,7 @@ public class AgentServiceScheduleTests
     public async Task UpdateScheduleAsync_missing_agent_fails_clearly()
     {
         var db = NewDb(nameof(UpdateScheduleAsync_missing_agent_fails_clearly));
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(Options.Create(new List<UserConfig>())));
 
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             service.UpdateScheduleAsync(Guid.NewGuid(), enabled: false, intervalMinutes: null, input: ""));

@@ -7,15 +7,16 @@ a one-shot alternative to chat) and the embeddable widget (`/widget/agentstudio.
 served by this one app — there is no separate API process.
 
 > **Security note — studio auth (phase 2).** The studio UI and the management `/api/...`
-> endpoints require a logged-in account (cookie auth, Admin/Editor roles). On first start, with
-> no accounts yet, `/` redirects to `/login` which redirects to `/setup` — create the first
-> Admin there. Manage further accounts at `/users` (Admin only). The runtime agent endpoints
+> endpoints require a logged-in account (cookie auth, Admin/Editor roles). Accounts are entirely
+> defined in `appsettings.json`'s `"Users"` array (no database table, no `/setup` bootstrap —
+> see "Model providers and user accounts in appsettings.json" below) — `/login` shows an inline
+> message if none are configured. `/users` is a read-only list. The runtime agent endpoints
 > (`/api/agents/{id}/versions/{v}/conversations` and `/stream`) stay anonymous, protected only
 > by the per-agent `X-Agent-Api-Key` header — those (plus `/chat/*`, `/run/*` and `/widget/*`)
 > are the endpoints safe to expose publicly; still bind the rest to an internal interface or a
 > reverse proxy with IP restrictions.
 >
-> `/auth/login` and `/auth/setup` are rate-limited to 5 requests/minute per client IP (returns
+> `/auth/login` is rate-limited to 5 requests/minute per client IP (returns
 > `429`, `AuthRateLimiting` in `Program.cs`, ASP.NET Core's built-in rate limiter — no new
 > dependency). **This is IP-based, not account-lockout** — it throttles one client hammering the
 > form, not credential stuffing spread across many IPs. It also relies on
@@ -128,48 +129,14 @@ the same way, nothing extra needed on deploy.
 If `ConnectionStrings:AgentStudio` is empty or the literal `"InMemory"`, the app falls back to
 EF InMemory (dev mode — data is lost on restart).
 
-### Encrypting provider API keys at rest
+### Model providers and user accounts — entirely appsettings.json now
 
-`ModelProviderConfig.ApiKey` (the LLM provider's key, entered on `/providers`) is stored
-encrypted (AES-256-GCM) once a key is configured — `SecretProtector` in
-`AgentStudio.Infrastructure`, wired as an EF `ValueConverter`, so nothing outside that one
-converter ever sees ciphertext. Set a 256-bit key, base64-encoded:
-
-```bash
-openssl rand -base64 32
-```
-
-Then either in `appsettings.Production.json`:
-
-```json
-{ "Secrets": { "EncryptionKey": "<base64 key>" } }
-```
-
-or as an environment variable (`__` for the nested key, standard ASP.NET Core config binding):
-
-```bash
-Secrets__EncryptionKey=<base64 key>
-```
-
-**No key configured = no encryption** (dev/CI default, not a silent downgrade — this is the
-same opt-in posture as `ConversationRetention`). Losing the key makes every stored ApiKey
-unrecoverable — back it up like any other production secret, separately from the database dump
-(a DB backup without the key is useless for this column, and vice versa).
-
-Rows written before a key was configured (or before this feature existed) stay plaintext in the
-column — enabling the key encrypts new writes only, it doesn't retroactively re-encrypt existing
-rows. `/providers` has no edit/delete today (create-only), so there's no UI path to force a
-rewrite; migrating an existing provider's key means updating its `ApiKey` column directly in
-Postgres (with the key already configured, so the app-side encryption logic is available if
-scripted through the app rather than raw SQL).
-
-### Model providers and user accounts in appsettings.json
-
-Both model providers and user accounts can be defined in config instead of the database —
-`"ModelProviders"` (array of `{ Name, BaseUrl, DefaultModel, ApiKey, EmbeddingModel, Headers }`)
-and `"Users"` (array of `{ Username, Password, PasswordHash, Role }`, `Role` one of
-`"Admin"`/`"Editor"`). Both merge with the corresponding database table — a config entry wins on
-a name/username collision — so this is additive, not a replacement for `/providers` or `/users`.
+Both model providers and user accounts are config-only — **no database table for either**, and
+no `/setup`/manual-add UI. `"ModelProviders"` (array of
+`{ Name, BaseUrl, DefaultModel, ApiKey, EmbeddingModel, Headers }`) and `"Users"` (array of
+`{ Username, Password, PasswordHash, Role }`, `Role` one of `"Admin"`/`"Editor"`) are the only
+source for either. `/providers` and `/users` are read-only lists — add, remove, or change an
+entry by editing `appsettings.json` and restarting.
 
 **A `Users` entry's password reaches the file in the clear unless you set `PasswordHash`
 instead of `Password`.** `Password` is a plaintext dev convenience, compared directly at login —
@@ -181,14 +148,15 @@ For production, hash it the same way the app does (`PasswordHasher<User>` — se
 { "Users": [ { "Username": "ops", "PasswordHash": "AQAAAAIAAYagAAAAE...", "Role": "Admin" } ] }
 ```
 
-Either way, treat `appsettings.Production.json` as a secret once it holds real credentials:
-restrict its file permissions (`chmod 600`), keep it out of source control, and prefer
-environment variables (`Users__0__PasswordHash=...`, same `__`-nesting as `Secrets__EncryptionKey`
-above) over a committed file where the deployment pipeline allows it.
+Same goes for a `ModelProviders` entry's `ApiKey` — it's plaintext in the file too; there's no
+encryption-at-rest layer any more (no database column left to encrypt). Treat
+`appsettings.Production.json` as a secret once it holds real credentials: restrict its file
+permissions (`chmod 600`), keep it out of source control, and prefer environment variables
+(`Users__0__PasswordHash=...`, `ModelProviders__0__ApiKey=...` — `__`-nesting, standard ASP.NET
+Core config binding) over a committed file where the deployment pipeline allows it.
 
-A config-defined user's role can't be changed and the account can't be deleted from `/users` —
-edit `appsettings.json` and restart instead. A config-defined provider likewise can't be
-edited/deleted from `/providers`.
+If `appsettings.json` has zero `Users` entries, `/login` shows an inline "no users configured"
+message rather than any bootstrap flow — there's no other way to create the first account.
 
 ## 3. IIS site (in-process)
 
@@ -288,8 +256,9 @@ or set `Documents:StoragePath` to a path that's already covered by your filesyst
 
 ## 6. Smoke test after deploy
 
-1. Open the studio UI — first visit redirects to `/setup`; create the first Admin account there,
-   then sign in at `/login`.
-2. Create a provider + agent, publish a version.
+1. Confirm `appsettings.Production.json` has at least one `Users` entry (an Admin), then sign in
+   at `/login`.
+2. Confirm `ModelProviders` has the provider(s) agents will use, create an agent, publish a
+   version.
 3. `curl -N -X POST https://host/api/agents/{id}/versions/1/stream -H "X-Agent-Api-Key: ask_..." -H "Content-Type: application/json" -d '{"message":"hi"}'` — expect SSE `data:` events (no login needed for this one — API-key protected only).
 4. Check logs: IIS stdout log (`stdoutLogEnabled="true"` in web.config) or Windows Event Log.

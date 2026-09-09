@@ -13,9 +13,7 @@ public sealed class AgentStudioDbContext : DbContext
 
     public DbSet<Agent> Agents => Set<Agent>();
     public DbSet<AgentVersion> AgentVersions => Set<AgentVersion>();
-    public DbSet<ModelProviderConfig> Providers => Set<ModelProviderConfig>();
     public DbSet<ExecutionLog> ExecutionLogs => Set<ExecutionLog>();
-    public DbSet<User> Users => Set<User>();
     public DbSet<ConversationState> Conversations => Set<ConversationState>();
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
@@ -77,31 +75,11 @@ public sealed class AgentStudioDbContext : DbContext
             e.Ignore(v => v.FormFields);
         });
 
-        var apiKeyConverter = new ValueConverter<string?, string?>(
-            v => SecretProtector.Protect(v),
-            v => SecretProtector.Unprotect(v));
-
-        modelBuilder.Entity<ModelProviderConfig>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.HasIndex(p => p.Name).IsUnique();
-            e.Property(p => p.Name).HasMaxLength(200).IsRequired();
-            e.Property(p => p.ApiKey).HasConversion(apiKeyConverter);
-            e.Property(p => p.Headers).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
-        });
-
         modelBuilder.Entity<ExecutionLog>(e =>
         {
             e.HasKey(l => l.Id);
             e.HasIndex(l => l.ExecutionId).IsUnique();
             e.Property(l => l.Steps).HasConversion(stepsConverter, JsonValueComparer<List<ExecutionStep>>()).HasColumnType("jsonb");
-        });
-
-        modelBuilder.Entity<User>(e =>
-        {
-            e.HasKey(u => u.Id);
-            e.HasIndex(u => u.Username).IsUnique();
-            e.Property(u => u.Username).HasMaxLength(100).IsRequired();
         });
 
         modelBuilder.Entity<ConversationState>(e =>

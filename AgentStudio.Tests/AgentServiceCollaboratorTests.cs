@@ -3,6 +3,7 @@ using AgentStudio.Contracts;
 using AgentStudio.Domain;
 using AgentStudio.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace AgentStudio.Tests;
@@ -12,15 +13,17 @@ public class AgentServiceCollaboratorTests
     private static AgentStudioDbContext NewDb(string dbName) =>
         new(new DbContextOptionsBuilder<AgentStudioDbContext>().UseInMemoryDatabase(dbName).Options);
 
+    private static readonly UserRepository Users = new(Options.Create(new List<UserConfig>
+    {
+        new() { Username = "owner", Password = "x", Role = UserRole.Editor },
+        new() { Username = "carol", Password = "x", Role = UserRole.Editor },
+    }));
+
     private static async Task<(AgentService Service, Agent Agent, AgentStudioDbContext Db)> Fixture(string dbName)
     {
         var db = NewDb(dbName);
-        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), new UserRepository(db));
-        var owner = new User { Username = "owner", PasswordHash = "x", Role = UserRole.Editor };
-        db.Users.Add(owner);
-        var collaboratorCandidate = new User { Username = "carol", PasswordHash = "x", Role = UserRole.Editor };
-        db.Users.Add(collaboratorCandidate);
-        await db.SaveChangesAsync();
+        var service = new AgentService(new AgentRepository(db), new ApiKeyService(), Users);
+        var owner = (await Users.GetByUsernameAsync("owner"))!;
         var (agent, _) = await service.CreateAsync(new CreateAgentRequest("t", "", "", "p", "m"), owner.Id, owner.Username);
         return (service, agent, db);
     }
@@ -71,7 +74,7 @@ public class AgentServiceCollaboratorTests
     {
         var (service, agent, db) = await Fixture(nameof(RemoveCollaboratorAsync_revokes_access));
         await service.AddCollaboratorAsync(agent.Id, "carol");
-        var carolId = (await db.Users.FirstAsync(u => u.Username == "carol")).Id;
+        var carolId = (await Users.GetByUsernameAsync("carol"))!.Id;
 
         await service.RemoveCollaboratorAsync(agent.Id, carolId);
 

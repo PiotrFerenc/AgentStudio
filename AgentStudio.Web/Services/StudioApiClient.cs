@@ -58,14 +58,6 @@ public sealed class StudioApiClient
 
     public Task<List<User>> ListUsersAsync(CancellationToken ct = default) => _users.ListAsync(ct);
 
-    public Task<User> CreateUserAsync(string username, string password, UserRole role, CancellationToken ct = default) =>
-        _users.CreateAsync(username, password, role, ct);
-
-    public Task ChangeUserRoleAsync(Guid userId, UserRole role, CancellationToken ct = default) =>
-        _users.ChangeRoleAsync(userId, role, ct);
-
-    public Task DeleteUserAsync(Guid userId, CancellationToken ct = default) => _users.DeleteAsync(userId, ct);
-
     public Task<List<Agent>> ListAgentsAsync(CancellationToken ct = default) => _agents.ListAsync(ct);
     public Task<Agent?> GetAgentAsync(Guid id, CancellationToken ct = default) => _agents.GetAsync(id, ct);
 
@@ -103,12 +95,6 @@ public sealed class StudioApiClient
         _agentService.RepublishAsync(agentId, version, ct);
 
     public Task<List<ModelProviderConfig>> ListProvidersAsync(CancellationToken ct = default) => _providers.ListAsync(ct);
-
-    public async Task AddProviderAsync(string name, string baseUrl, string model, string? apiKey, string? embeddingModel = null, Dictionary<string, string>? headers = null, CancellationToken ct = default)
-    {
-        await _providers.AddAsync(new ModelProviderConfig { Name = name, BaseUrl = baseUrl, DefaultModel = model, ApiKey = apiKey, EmbeddingModel = embeddingModel, Headers = headers ?? new() }, ct);
-        await _providers.SaveChangesAsync(ct);
-    }
 
     public Task<List<ExecutionLog>> ListLogsAsync(Guid agentId, CancellationToken ct = default) =>
         _logs.ListForAgentAsync(agentId, 50, ct);
