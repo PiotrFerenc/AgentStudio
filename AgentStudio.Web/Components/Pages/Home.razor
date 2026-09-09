@@ -8,7 +8,10 @@
 <PageTitle>Agents</PageTitle>
 
 <div class="panel">
-    <h2>Agents</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">Agents</h2>
+        <button class="primary" @onclick="OpenCreate">New agent</button>
+    </div>
     @if (_agents is null)
     {
         <p>Loading...</p>
@@ -43,34 +46,63 @@
     }
 </div>
 
-<div class="panel">
-    <h2>Create Agent</h2>
-    <label>Name</label>
-    <input type="text" @bind="_name" />
-    <label>Description</label>
-    <input type="text" @bind="_description" />
-    <label>System instructions</label>
-    <textarea @bind="_instructions"></textarea>
-    <label>Model provider</label>
-    <select @bind="_providerName">
-        <option value="">-- select --</option>
-        @foreach (var p in _providers ?? new())
-        {
-            <option value="@p.Name">@p.Name (@p.BaseUrl)</option>
-        }
-    </select>
-    <label>Model name</label>
-    <input type="text" @bind="_modelName" placeholder="e.g. llama3.1, qwen2.5" />
-    <br />
-    <button class="primary" @onclick="CreateAsync" disabled="@_creating">Create</button>
-    @if (_createdKey is not null)
-    {
-        <div class="panel" style="background:#fff3bf;margin-top:1rem">
-            <strong>API key (shown once):</strong>
-            <code>@_createdKey</code>
+@if (_showCreate)
+{
+    <div class="modal-backdrop" @onclick="CloseCreate">
+        <div class="modal" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>Create Agent</h2>
+                <button class="modal-close" @onclick="CloseCreate" aria-label="Close">×</button>
+            </div>
+            <label>Name</label>
+            <input type="text" @bind="_name" />
+            <label>Description</label>
+            <input type="text" @bind="_description" />
+            <label>System instructions</label>
+            <textarea @bind="_instructions"></textarea>
+            <label>Model provider</label>
+            <select @bind="_providerName">
+                <option value="">-- select --</option>
+                @foreach (var p in _providers ?? new())
+                {
+                    <option value="@p.Name">@p.Name (@p.BaseUrl)</option>
+                }
+            </select>
+            <label>Model name</label>
+            <input type="text" @bind="_modelName" placeholder="e.g. llama3.1, qwen2.5" />
+            <br />
+            <button class="primary" @onclick="CreateAsync" disabled="@_creating">Create</button>
+            @if (_createdKey is not null)
+            {
+                <div class="panel" style="background:#fff3bf;margin-top:1rem">
+                    <strong>API key (shown once):</strong>
+                    <code>@_createdKey</code>
+                </div>
+            }
         </div>
+    </div>
+}
+
+<style>
+    .modal-backdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,.4);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 1000;
     }
-</div>
+    .modal {
+        background: var(--paper, #fff); border-radius: 10px;
+        padding: 1.25rem 1.5rem; width: min(560px, 92vw);
+        max-height: 88vh; overflow-y: auto;
+        box-shadow: 0 12px 40px rgba(0,0,0,.25);
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h2 { margin: 0; }
+    .modal-close {
+        background: none; border: none; font-size: 1.4rem; line-height: 1;
+        cursor: pointer; color: var(--ink-3, #8b8a92); padding: 0 .25rem;
+    }
+    .modal-close:hover { color: var(--ink-1, #16161a); }
+</style>
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -84,11 +116,21 @@
     private string _modelName = "";
     private string? _createdKey;
     private bool _creating;
+    private bool _showCreate;
 
     protected override async Task OnInitializedAsync()
     {
         _agents = await Api.ListAgentsAsync();
         _providers = await Api.ListProvidersAsync();
+    }
+
+    private void OpenCreate() => _showCreate = true;
+
+    private void CloseCreate()
+    {
+        _showCreate = false;
+        _name = _description = _instructions = _providerName = _modelName = "";
+        _createdKey = null;
     }
 
     private async Task CreateAsync()
