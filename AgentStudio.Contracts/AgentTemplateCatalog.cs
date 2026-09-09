@@ -39,7 +39,11 @@ public static class AgentTemplateCatalog
                         ["promptTemplate"] = "Answer using this context only:\n{variables.context}\n\nQuestion: {input}",
                         ["resultVariable"] = "llmResult"
                     } },
-                    new() { Id = "end", Type = "end", Label = "End", X = 900, Y = 200, Props = new() { ["outputTemplate"] = "{variables.llmResult}" } },
+                    // No outputTemplate here, deliberately — the prompt node above already
+                    // streamed its reply live; re-referencing {variables.llmResult} here would
+                    // emit the same text a second time (same convention AgentService's
+                    // DefaultGraph follows for its own Start→Prompt→End).
+                    new() { Id = "end", Type = "end", Label = "End", X = 900, Y = 200 },
                 },
                 Edges = new List<WorkflowEdgeDto>
                 {
@@ -89,7 +93,8 @@ public static class AgentTemplateCatalog
                         ["promptTemplate"] = "A new form submission arrived:\nName: {variables.name}\nEmail: {variables.email}\n\nWrite a short acknowledgement message.",
                         ["resultVariable"] = "llmResult"
                     } },
-                    new() { Id = "end", Type = "end", Label = "End", X = 600, Y = 200, Props = new() { ["outputTemplate"] = "{variables.llmResult}" } },
+                    // No outputTemplate — same reason as the RAG Q&A template above.
+                    new() { Id = "end", Type = "end", Label = "End", X = 600, Y = 200 },
                 },
                 Edges = new List<WorkflowEdgeDto>
                 {
