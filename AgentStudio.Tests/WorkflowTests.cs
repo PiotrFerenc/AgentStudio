@@ -221,7 +221,12 @@ public class WorkflowRunnerTests
 
     private sealed class FakeChatClientFactory : IChatClientFactory
     {
-        public Application.IChatClient Create(ModelProviderConfig provider, string modelName) => new FakeChatClient();
+        public readonly List<(string ProviderName, string ModelName)> Calls = new();
+        public Application.IChatClient Create(ModelProviderConfig provider, string modelName)
+        {
+            Calls.Add((provider.Name, modelName));
+            return new FakeChatClient();
+        }
     }
 
     private sealed class FakeHttp : ISecureHttpExecutor
@@ -232,8 +237,12 @@ public class WorkflowRunnerTests
 
     private sealed class FakeDocumentSearch : IDocumentSearchService
     {
-        public Task<List<string>> SearchAsync(Guid agentId, string query, int topK, ModelProviderConfig provider, CancellationToken ct = default) =>
-            Task.FromResult(new List<string> { "chunk about " + query });
+        public readonly List<string> ProvidersUsed = new();
+        public Task<List<string>> SearchAsync(Guid agentId, string query, int topK, ModelProviderConfig provider, CancellationToken ct = default)
+        {
+            ProvidersUsed.Add(provider.Name);
+            return Task.FromResult(new List<string> { "chunk about " + query });
+        }
     }
 
     private sealed class FakeDatabaseQueryExecutor : IDatabaseQueryExecutor
@@ -326,6 +335,97 @@ public class WorkflowRunnerTests
 
         Assert.Equal("Hello there!", output);
         Assert.Equal("Hello there!", conversation.Variables["r"]);
+    }
+
+    [Fact]
+    public async Task Prompt_node_with_provider_override_calls_the_overridden_provider_and_model()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new PromptNode { Id = "p", ResultVariable = "r", ProviderName = "other", ModelName = "other-model" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "p" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "p", TargetNodeId = "e" });
+
+        var chatFactory = new FakeChatClientFactory();
+        var providers = new FakeProviderRepository();
+        providers.Add(new ModelProviderConfig { Name = "p", BaseUrl = "http://x" });
+        providers.Add(new ModelProviderConfig { Name = "other", BaseUrl = "http://y" });
+        var runner = new WorkflowRunner(chatFactory, new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        await foreach (var _ in runner.RunAsync(agent, version, provider, conversation, "hi")) { }
+
+        var call = Assert.Single(chatFactory.Calls);
+        Assert.Equal("other", call.ProviderName);
+        Assert.Equal("other-model", call.ModelName);
+    }
+
+    [Fact]
+    public async Task Prompt_node_without_provider_override_uses_the_agents_own_provider_and_model()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new PromptNode { Id = "p", ResultVariable = "r" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "p" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "p", TargetNodeId = "e" });
+
+        var chatFactory = new FakeChatClientFactory();
+        var runner = new WorkflowRunner(chatFactory, new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        await foreach (var _ in runner.RunAsync(agent, version, provider, conversation, "hi")) { }
+
+        var call = Assert.Single(chatFactory.Calls);
+        Assert.Equal("p", call.ProviderName);
+        Assert.Equal("m", call.ModelName);
+    }
+
+    [Fact]
+    public async Task Prompt_node_with_unknown_provider_override_fails_clearly()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new PromptNode { Id = "p", ResultVariable = "r", ProviderName = "does-not-exist" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "p" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "p", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        // WorkflowRunner never throws out of RunAsync for a node-level failure (by design — see
+        // CLAUDE.md) — a bad override surfaces as an "[error]" chunk in the output, not an
+        // exception at the call site.
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "hi"))
+            output += chunk;
+
+        Assert.Contains("[error]", output);
+        Assert.Contains("does-not-exist", output);
+    }
+
+    [Fact]
+    public async Task DocumentSearch_node_with_provider_override_calls_the_overridden_provider()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new DocumentSearchNode { Id = "d", ResultVariable = "r", ProviderName = "other" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "d" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "d", TargetNodeId = "e" });
+
+        var documentSearch = new FakeDocumentSearch();
+        var providers = new FakeProviderRepository();
+        providers.Add(new ModelProviderConfig { Name = "p", BaseUrl = "http://x" });
+        providers.Add(new ModelProviderConfig { Name = "other", BaseUrl = "http://y" });
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), documentSearch, new FakeAgentRepository(), providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        await foreach (var _ in runner.RunAsync(agent, version, provider, conversation, "hi")) { }
+
+        Assert.Equal("other", Assert.Single(documentSearch.ProvidersUsed));
     }
 
     [Fact]

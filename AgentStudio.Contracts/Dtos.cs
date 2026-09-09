@@ -60,7 +60,7 @@ public static class GraphMapper
                 "start" => new StartNode { Id = n.Id },
                 "end" => new EndNode { Id = n.Id, OutputTemplate = Prop(n, "outputTemplate") },
                 "message" => new MessageNode { Id = n.Id, Text = Prop(n, "text") },
-                "prompt" => new PromptNode { Id = n.Id, PromptTemplate = Prop(n, "promptTemplate"), ResultVariable = Prop(n, "resultVariable", "llmResult") },
+                "prompt" => new PromptNode { Id = n.Id, PromptTemplate = Prop(n, "promptTemplate"), ResultVariable = Prop(n, "resultVariable", "llmResult"), ProviderName = Prop(n, "providerName"), ModelName = Prop(n, "modelName") },
                 "condition" => new ConditionNode { Id = n.Id, Left = Prop(n, "left"), Right = Prop(n, "right"), Operator = ParseOperator(Prop(n, "operator", "Equals")) },
                 "http" => new HttpNode
                 {
@@ -77,7 +77,7 @@ public static class GraphMapper
                 "variable" => new VariableNode { Id = n.Id, Name = Prop(n, "name"), Value = Prop(n, "value") },
                 "parallel" => new ParallelNode { Id = n.Id },
                 "join" => new JoinNode { Id = n.Id },
-                "documentSearch" => new DocumentSearchNode { Id = n.Id, Query = Prop(n, "query", "{input}"), TopK = PropInt(n, "topK", 3), ResultVariable = Prop(n, "resultVariable", "searchResult") },
+                "documentSearch" => new DocumentSearchNode { Id = n.Id, Query = Prop(n, "query", "{input}"), TopK = PropInt(n, "topK", 3), ResultVariable = Prop(n, "resultVariable", "searchResult"), ProviderName = Prop(n, "providerName") },
                 "subAgent" => new SubAgentNode { Id = n.Id, TargetAgentId = PropGuid(n, "targetAgentId"), InputTemplate = Prop(n, "inputTemplate", "{input}"), ResultVariable = Prop(n, "resultVariable", "subAgentResult") },
                 "databaseQuery" => new DatabaseQueryNode
                 {
@@ -145,7 +145,10 @@ public static class GraphMapper
             {
                 case EndNode e: n.Props["outputTemplate"] = e.OutputTemplate; break;
                 case MessageNode m: n.Props["text"] = m.Text; break;
-                case PromptNode p: n.Props["promptTemplate"] = p.PromptTemplate; n.Props["resultVariable"] = p.ResultVariable; break;
+                case PromptNode p:
+                    n.Props["promptTemplate"] = p.PromptTemplate; n.Props["resultVariable"] = p.ResultVariable;
+                    n.Props["providerName"] = p.ProviderName; n.Props["modelName"] = p.ModelName;
+                    break;
                 case ConditionNode c: n.Props["left"] = c.Left; n.Props["right"] = c.Right; n.Props["operator"] = c.Operator.ToString(); break;
                 case HttpNode h:
                     n.Props["method"] = h.Method; n.Props["url"] = h.Url; n.Props["body"] = h.Body;
@@ -154,7 +157,10 @@ public static class GraphMapper
                     n.Props["headers"] = h.Headers; n.Props["queryParameters"] = h.QueryParameters;
                     break;
                 case VariableNode v: n.Props["name"] = v.Name; n.Props["value"] = v.Value; break;
-                case DocumentSearchNode d: n.Props["query"] = d.Query; n.Props["topK"] = d.TopK; n.Props["resultVariable"] = d.ResultVariable; break;
+                case DocumentSearchNode d:
+                    n.Props["query"] = d.Query; n.Props["topK"] = d.TopK; n.Props["resultVariable"] = d.ResultVariable;
+                    n.Props["providerName"] = d.ProviderName;
+                    break;
                 case SubAgentNode s: n.Props["targetAgentId"] = s.TargetAgentId.ToString(); n.Props["inputTemplate"] = s.InputTemplate; n.Props["resultVariable"] = s.ResultVariable; break;
                 case DatabaseQueryNode q:
                     n.Props["connectionName"] = q.ConnectionName; n.Props["query"] = q.Query;

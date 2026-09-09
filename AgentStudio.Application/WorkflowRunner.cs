@@ -301,7 +301,8 @@ public sealed class WorkflowRunner
                     try
                     {
                         var query = ExpandTemplate(search.Query, variables);
-                        var chunks = await _documentSearch.SearchAsync(agent.Id, query, search.TopK, provider, ct);
+                        var searchProvider = await ResolveProviderAsync(search.ProviderName, provider, ct);
+                        var chunks = await _documentSearch.SearchAsync(agent.Id, query, search.TopK, searchProvider, ct);
                         variables[search.ResultVariable] = string.Join("\n\n", chunks);
                         _logWriter.CompleteStep(step, $"documentSearch: {chunks.Count} chunks");
                     }
@@ -481,7 +482,9 @@ public sealed class WorkflowRunner
                         if (!string.IsNullOrWhiteSpace(promptText))
                             messages.Add(new ChatMessage { Role = "user", Content = promptText });
 
-                        var client = _chatClients.Create(provider, agent.ModelName);
+                        var promptProvider = await ResolveProviderAsync(prompt.ProviderName, provider, ct);
+                        var modelName = string.IsNullOrWhiteSpace(prompt.ModelName) ? agent.ModelName : prompt.ModelName;
+                        var client = _chatClients.Create(promptProvider, modelName);
                         await foreach (var chunk in client.StreamReplyAsync(messages, ct))
                         {
                             buffer.Append(chunk);
@@ -592,6 +595,16 @@ public sealed class WorkflowRunner
         Headers = node.Headers.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables)),
         QueryParameters = node.QueryParameters.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables))
     };
+
+    /// <summary>PromptNode/DocumentSearchNode's per-node provider override (empty = inherit the
+    /// run's own provider, resolved once from the agent's ModelProviderName). A set-but-unknown
+    /// override name fails clearly rather than silently falling back.</summary>
+    private async Task<ModelProviderConfig> ResolveProviderAsync(string? overrideProviderName, ModelProviderConfig fallback, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(overrideProviderName)) return fallback;
+        return await _providers.GetByNameAsync(overrideProviderName, ct)
+            ?? throw new InvalidOperationException($"Provider '{overrideProviderName}' is not configured.");
+    }
 
     private static WorkflowNode? NextByEdge(WorkflowGraph graph, string sourceId, string? branch)
     {

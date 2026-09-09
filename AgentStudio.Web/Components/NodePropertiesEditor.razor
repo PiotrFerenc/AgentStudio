@@ -24,6 +24,18 @@ else
             <label>Result variable</label>
             <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="ResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <label>Provider override (optional)</label>
+            <FieldHint Text="@Hint("providerName")" />
+            <select @bind="PromptProviderName" @bind:after="Changed">
+                <option value="">-- use agent's provider --</option>
+                @foreach (var p in AvailableProviders ?? new())
+                {
+                    <option value="@p.Name">@p.Name</option>
+                }
+            </select>
+            <label>Model override (optional)</label>
+            <FieldHint Text="@Hint("modelName")" />
+            <input type="text" @bind="PromptModelName" @bind:event="oninput" @bind:after="Changed" placeholder="leave blank to use the agent's model" />
             break;
         case "message":
             <label>Message text</label>
@@ -89,6 +101,15 @@ else
             <label>Result variable</label>
             <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="SearchResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <label>Provider override (optional)</label>
+            <FieldHint Text="@Hint("providerName")" />
+            <select @bind="SearchProviderName" @bind:after="Changed">
+                <option value="">-- use agent's provider --</option>
+                @foreach (var p in AvailableProviders ?? new())
+                {
+                    <option value="@p.Name">@p.Name</option>
+                }
+            </select>
             break;
         case "subAgent":
             <label>Target agent</label>
@@ -242,6 +263,7 @@ else
     [Parameter] public WorkflowNodeDto? SelectedNode { get; set; }
     [Parameter] public EventCallback<WorkflowNodeDto> NodeChanged { get; set; }
     [Parameter] public List<AgentStudio.Domain.Agent>? AvailableAgents { get; set; }
+    [Parameter] public List<AgentStudio.Domain.ModelProviderConfig>? AvailableProviders { get; set; }
     [Parameter] public List<AgentStudio.Domain.DatabaseConnectionConfig>? AvailableConnections { get; set; }
     [Parameter] public List<AgentStudio.Contracts.IntegratorSummary>? AvailableIntegrators { get; set; }
     [Parameter] public Guid AgentId { get; set; }
@@ -303,6 +325,8 @@ else
 
     private string PromptTemplate { get => Get("promptTemplate"); set => Put("promptTemplate", value); }
     private string ResultVariable { get => Get("resultVariable", "llmResult"); set => Put("resultVariable", value); }
+    private string PromptProviderName { get => Get("providerName"); set => Put("providerName", value); }
+    private string PromptModelName { get => Get("modelName"); set => Put("modelName", value); }
     private string MessageText { get => Get("text"); set => Put("text", value); }
     private string CondLeft { get => Get("left"); set => Put("left", value); }
     private string CondOperator { get => Get("operator", "Equals"); set => Put("operator", value); }
@@ -319,6 +343,7 @@ else
     private string SearchQuery { get => Get("query", "{input}"); set => Put("query", value); }
     private string SearchTopK { get => Get("topK", "3"); set => Put("topK", value); }
     private string SearchResultVariable { get => Get("resultVariable", "searchResult"); set => Put("resultVariable", value); }
+    private string SearchProviderName { get => Get("providerName"); set => Put("providerName", value); }
     private string SubAgentTargetId { get => Get("targetAgentId"); set => Put("targetAgentId", value); }
     private string SubAgentInputTemplate { get => Get("inputTemplate", "{input}"); set => Put("inputTemplate", value); }
     private string SubAgentResultVariable { get => Get("resultVariable", "subAgentResult"); set => Put("resultVariable", value); }

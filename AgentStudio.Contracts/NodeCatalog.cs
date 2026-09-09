@@ -26,6 +26,8 @@ public static class NodeCatalog
         new("prompt", "Prompt", "Sends a prompt to the agent's LLM and streams the reply back to the caller.", [
             new("promptTemplate", "The message sent to the LLM. Supports {input} and {variables.name} placeholders."),
             new("resultVariable", "Variable name the LLM's full reply is saved to."),
+            new("providerName", "Optional — call a different provider than the agent's default for just this node. Blank uses the agent's provider."),
+            new("modelName", "Optional — use a different model on the (possibly overridden) provider. Blank uses the agent's model."),
         ]),
 
         new("message", "Message", "Emits fixed (or templated) text to the output — no LLM call.", [
@@ -56,6 +58,7 @@ public static class NodeCatalog
             new("query", "Search query — supports {input}/{variables.x} placeholders."),
             new("topK", "How many matching chunks to retrieve."),
             new("resultVariable", "Variable name the matched chunk text is saved to."),
+            new("providerName", "Optional — embed against a different provider than the agent's default for just this node. Blank uses the agent's provider."),
         ]),
 
         new("subAgent", "Sub-Agent Call", "Calls another agent's published version as a one-shot step. Its own conversation — not shared history with this one.", [

@@ -52,6 +52,23 @@ else
     @if (_activeTab == "overview")
     {
     <div class="panel">
+        <p title="Default provider/model for prompt and documentSearch nodes — a node can override this individually.">
+            <label style="display:inline;margin:0">Model provider</label>
+            <select style="display:inline-block;margin:0 .3rem" @bind="_providerName">
+                <option value="">-- select --</option>
+                @foreach (var p in _allProviders ?? new())
+                {
+                    <option value="@p.Name">@p.Name (@p.BaseUrl)</option>
+                }
+            </select>
+            <label style="display:inline;margin:0">Model</label>
+            <input type="text" style="width:10em;display:inline-block;margin:0 .3rem" @bind="_modelName" @bind:event="oninput" placeholder="e.g. llama3.1" />
+            <button class="secondary" style="padding:.15rem .6rem;font-size:.75rem" @onclick="SaveProviderAsync">Save provider</button>
+            @if (_providerMessage is not null)
+            {
+                <span style="margin-left:.5rem;font-size:.8rem">@_providerMessage</span>
+            }
+        </p>
         <p>
             <label style="display:inline;margin:0" title="Safety cap on total node executions per run — also the loop-iteration guard.">Max steps</label>
             <input type="number" min="1" style="width:6em;display:inline-block;margin:0 0 0 .4rem" @bind="_maxSteps" @bind:event="oninput" />
@@ -229,7 +246,7 @@ else
                              AgentId="Id" />
             </div>
             <div style="flex:1;min-width:280px">
-                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" AgentId="Id" Graph="_graph" />
+                <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableProviders="_allProviders" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" AgentId="Id" Graph="_graph" />
             </div>
         </div>
     </div>
@@ -605,8 +622,12 @@ else
     private string _newCollaboratorUsername = "";
     private string? _shareError;
     private List<Agent>? _allAgents;
+    private List<ModelProviderConfig>? _allProviders;
     private List<DatabaseConnectionConfig>? _allConnections;
     private List<IntegratorSummary>? _allIntegrators;
+    private string _providerName = "";
+    private string _modelName = "";
+    private string? _providerMessage;
     private List<(GraphComponentSummary Summary, WorkflowGraphDto Graph)>? _availableComponents;
     private WorkflowGraphDto _graph = new();
     private WorkflowNodeDto? _selectedNode;
@@ -738,6 +759,8 @@ else
             _scheduleIntervalMinutes = Agent.ScheduleIntervalMinutes;
             _scheduleInput = Agent.ScheduleInput;
             _envVarsText = string.Join("\n", Agent.EnvironmentVariables.Select(kv => $"{kv.Key}={kv.Value}"));
+            _providerName = Agent.ModelProviderName;
+            _modelName = Agent.ModelName;
         }
         if (Agent?.Draft is not null)
         {
@@ -752,6 +775,7 @@ else
         _logs = await Api.ListLogsAsync(Id);
         _documents = await Api.ListDocumentsAsync(Id);
         _allAgents = await Api.ListAgentsAsync();
+        _allProviders = await Api.ListProvidersAsync();
         _allConnections = Api.ListDatabaseConnections();
         _allIntegrators = Api.ListIntegrators();
         _availableComponents = await Api.ListGraphComponentsWithGraphsAsync();
@@ -817,6 +841,20 @@ else
         catch (Exception ex)
         {
             _scheduleMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveProviderAsync()
+    {
+        try
+        {
+            await Api.UpdateAgentProviderAsync(Id, _providerName, _modelName);
+            Agent = await Api.GetAgentAsync(Id);
+            _providerMessage = "Saved.";
+        }
+        catch (Exception ex)
+        {
+            _providerMessage = ex.Message;
         }
     }
 

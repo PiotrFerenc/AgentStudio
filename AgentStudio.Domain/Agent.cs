@@ -239,6 +239,13 @@ public sealed class PromptNode : WorkflowNode
     public string PromptTemplate { get; set; } = "";
     /// <summary>Variable name the LLM response is written to.</summary>
     public string ResultVariable { get; set; } = "llmResult";
+
+    /// <summary>Empty (default) means use the agent's own configured provider/model — set to
+    /// call a different provider than the agent's default for just this node.</summary>
+    public string ProviderName { get; set; } = "";
+    /// <summary>Empty (default) means use the agent's own ModelName even when ProviderName is
+    /// overridden — set to also pick a different model on that provider.</summary>
+    public string ModelName { get; set; } = "";
 }
 
 public sealed class ConditionNode : WorkflowNode
@@ -307,6 +314,10 @@ public sealed class DocumentSearchNode : WorkflowNode
     public string Query { get; set; } = "{input}";
     public int TopK { get; set; } = 3;
     public string ResultVariable { get; set; } = "searchResult";
+
+    /// <summary>Empty (default) means use the agent's own configured provider (and its
+    /// EmbeddingModel) — set to embed against a different provider for just this node.</summary>
+    public string ProviderName { get; set; } = "";
 }
 
 /// <summary>Calls another agent's published version as a one-shot, stateless step (phase 3) —
