@@ -87,6 +87,35 @@ public class AnalyticsRepositoryTests
     }
 
     [Fact]
+    public async Task GetSummaryAsync_ByDay_is_zero_filled_across_a_gap_with_no_executions()
+    {
+        // Executions three days apart with nothing in between — ByDay must still contain an
+        // entry for every day in between (Executions=0), not just the two days that had data.
+        // A sparse list here would make the "Executions per day" chart compress the gap away,
+        // drawing the two active days as if they were adjacent.
+        var db = NewDb("analytics-byday-gap");
+        var agent = Guid.NewGuid();
+        db.Agents.Add(new Agent { Id = agent, Name = "Agent" });
+        var today = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+        db.ExecutionLogs.Add(Log(agent, "completed", today.AddDays(-4), TimeSpan.FromSeconds(1)));
+        db.ExecutionLogs.Add(Log(agent, "completed", today.AddDays(-1), TimeSpan.FromSeconds(1)));
+        await db.SaveChangesAsync();
+
+        var repo = new AnalyticsRepository(db);
+        var summary = await repo.GetSummaryAsync(days: 7);
+
+        var byDate = summary.ByDay.ToDictionary(d => d.Date, d => d.Executions);
+        Assert.Equal(1, byDate[DateOnly.FromDateTime(today.AddDays(-4).UtcDateTime)]);
+        Assert.Equal(0, byDate[DateOnly.FromDateTime(today.AddDays(-3).UtcDateTime)]);
+        Assert.Equal(0, byDate[DateOnly.FromDateTime(today.AddDays(-2).UtcDateTime)]);
+        Assert.Equal(1, byDate[DateOnly.FromDateTime(today.AddDays(-1).UtcDateTime)]);
+        // Consecutive calendar days, no skipped dates anywhere in the returned list.
+        var ordered = summary.ByDay.OrderBy(d => d.Date).Select(d => d.Date).ToList();
+        for (var i = 1; i < ordered.Count; i++)
+            Assert.Equal(ordered[i - 1].AddDays(1), ordered[i]);
+    }
+
+    [Fact]
     public async Task GetSummaryAsync_no_data_returns_zeroed_summary()
     {
         var db = NewDb("analytics-empty");
@@ -97,7 +126,8 @@ public class AnalyticsRepositoryTests
         Assert.Equal(0, summary.ActiveAgents);
         Assert.Equal(0, summary.AvgDurationSeconds);
         Assert.Empty(summary.ByAgent);
-        Assert.Empty(summary.ByDay);
+        // ByDay is zero-filled for the whole window (not empty) — see the next test.
+        Assert.All(summary.ByDay, d => Assert.Equal(0, d.Executions));
         Assert.Equal(0, summary.FormSubmissions);
         Assert.Equal(0, summary.FormFailedSubmissions);
     }

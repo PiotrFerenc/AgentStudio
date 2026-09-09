@@ -176,11 +176,16 @@ public sealed class AnalyticsRepository : IAnalyticsRepository
             .OrderByDescending(a => a.Executions)
             .ToList();
 
-        var byDay = logs
+        // Zero-filled for every day in the window, not just days that had an execution — a
+        // sparse list (skipping empty days entirely) would make the "Executions per day" chart
+        // silently compress a gap (e.g. a weekend with no runs) into adjacent bars, making two
+        // days that are actually far apart on the calendar look consecutive.
+        var byDayLookup = logs
             .GroupBy(l => DateOnly.FromDateTime(l.StartedAt.UtcDateTime.Date))
-            .Select(g => new DailyCount(g.Key, g.Count()))
-            .OrderBy(d => d.Date)
-            .ToList();
+            .ToDictionary(g => g.Key, g => g.Count());
+        var byDay = new List<DailyCount>();
+        for (var d = DateOnly.FromDateTime(since.UtcDateTime.Date); d <= DateOnly.FromDateTime(DateTime.UtcNow.Date); d = d.AddDays(1))
+            byDay.Add(new DailyCount(d, byDayLookup.GetValueOrDefault(d, 0)));
 
         // "form-" prefix is the same throwaway-conversation convention SubAgentNode uses with
         // "subagent-" — see WorkflowRunner.cs. Reuses the logs list already fetched above, no
