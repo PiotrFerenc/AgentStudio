@@ -61,6 +61,7 @@ public static class DependencyInjection
         services.AddHostedService<ScheduledRunner>();
         services.AddScoped<WorkflowRunner>();
         services.AddScoped<AgentService>();
+        services.AddScoped<GraphGenerationService>();
         services.AddSingleton<IApiKeyService, ApiKeyService>();
 
         return services;

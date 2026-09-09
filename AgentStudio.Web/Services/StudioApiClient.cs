@@ -20,6 +20,7 @@ public sealed class StudioApiClient
     private readonly IAnalyticsRepository _analytics;
     private readonly IEnumerable<IIntegrator> _integrators;
     private readonly IGraphComponentRepository _graphComponents;
+    private readonly GraphGenerationService _graphGeneration;
 
     public StudioApiClient(
         IAgentRepository agents,
@@ -33,7 +34,8 @@ public sealed class StudioApiClient
         IDatabaseConnectionProvider databaseConnections,
         IAnalyticsRepository analytics,
         IEnumerable<IIntegrator> integrators,
-        IGraphComponentRepository graphComponents)
+        IGraphComponentRepository graphComponents,
+        GraphGenerationService graphGeneration)
     {
         _agents = agents;
         _providers = providers;
@@ -47,6 +49,7 @@ public sealed class StudioApiClient
         _analytics = analytics;
         _integrators = integrators;
         _graphComponents = graphComponents;
+        _graphGeneration = graphGeneration;
     }
 
     /// <summary>Name+description only — never the IIntegrator instance itself.</summary>
@@ -180,5 +183,13 @@ public sealed class StudioApiClient
             ?? throw new InvalidOperationException($"Provider '{agent.ModelProviderName}' is not configured.");
         var graph = GraphMapper.ToDomain(graphDto);
         return await _runner.DebugNodeAsync(agent, provider, graph, nodeId, sampleVariables, ct);
+    }
+
+    /// <summary>Generates a graph fragment from a plain-language description — the graph
+    /// editor's "Generate with AI" panel. Uses the agent's own configured provider/model.</summary>
+    public async Task<GraphGenerationResult> GenerateGraphAsync(Guid agentId, string instructions, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        return await _graphGeneration.GenerateGraphAsync(agent, instructions, ct);
     }
 }

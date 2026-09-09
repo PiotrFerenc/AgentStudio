@@ -1,4 +1,5 @@
 @using AgentStudio.Contracts
+@inject AgentStudio.Web.Services.StudioApiClient Api
 
 <div class="graph-toolbar">
     <span>Add:</span>
@@ -26,6 +27,15 @@
             <button class="graph-add-btn" @onclick="InsertComponent" disabled="@string.IsNullOrEmpty(_insertComponentId)">Insert</button>
             <button class="graph-add-btn danger" @onclick="DeleteComponent" disabled="@string.IsNullOrEmpty(_insertComponentId)" title="Delete this saved component">Delete component</button>
         </span>
+    }
+</div>
+<div class="graph-toolbar">
+    <span>Generate with AI:</span>
+    <input type="text" @bind="_generateInstructions" @bind:event="oninput" placeholder="e.g. look up the order by id, then reply with its status" style="flex:1;min-width:280px" />
+    <button class="graph-add-btn" @onclick="GenerateGraphAsync" disabled="@(_generating || string.IsNullOrWhiteSpace(_generateInstructions))">@(_generating ? "Generating…" : "Generate")</button>
+    @if (_generateErrors is { Count: > 0 })
+    {
+        <span style="color:#c92a2a;font-size:.8rem">@string.Join(" ", _generateErrors)</span>
     }
 </div>
 @if (_componentSelection.Count > 0)
@@ -210,6 +220,11 @@
     [Parameter] public List<(GraphComponentSummary Summary, WorkflowGraphDto Graph)>? AvailableComponents { get; set; }
     [Parameter] public EventCallback<(string Name, WorkflowGraphDto Graph)> ComponentSaveRequested { get; set; }
     [Parameter] public EventCallback<Guid> ComponentDeleteRequested { get; set; }
+    [Parameter] public Guid AgentId { get; set; }
+
+    private string _generateInstructions = "";
+    private bool _generating;
+    private List<string>? _generateErrors;
 
     public WorkflowNodeDto? SelectedNode { get; private set; }
     private WorkflowEdgeDto? _selectedEdge;
@@ -564,6 +579,44 @@
 
         _insertComponentId = "";
         Notify();
+    }
+
+    /// <summary>Inserts the AI-generated graph the same way InsertComponent inserts a saved
+    /// component — fresh ids via GraphComponentInserter.Clone, offset so it doesn't stack on
+    /// existing nodes. Never replaces the current graph, so a bad generation costs nothing more
+    /// than a manual delete.</summary>
+    private async Task GenerateGraphAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_generateInstructions)) return;
+        _generating = true;
+        _generateErrors = null;
+        try
+        {
+            var result = await Api.GenerateGraphAsync(AgentId, _generateInstructions);
+            if (!result.Success || result.Graph is null)
+            {
+                _generateErrors = result.Errors;
+                return;
+            }
+
+            var offsetX = 60 + Graph.Nodes.Count * 20;
+            var offsetY = 60 + Graph.Nodes.Count * 20;
+            var (nodes, edges) = GraphComponentInserter.Clone(result.Graph, type => $"{type}{++_counter}", () => $"e{++_counter}");
+            foreach (var n in nodes) { n.X += offsetX; n.Y += offsetY; }
+
+            Graph.Nodes.AddRange(nodes);
+            Graph.Edges.AddRange(edges);
+            _generateInstructions = "";
+            Notify();
+        }
+        catch (Exception ex)
+        {
+            _generateErrors = new List<string> { ex.Message };
+        }
+        finally
+        {
+            _generating = false;
+        }
     }
 
     private async Task DeleteComponent()

@@ -225,7 +225,8 @@ else
                 <GraphEditor Graph="_graph" GraphChanged="OnGraphChanged" @ref="_editor"
                              AvailableComponents="_availableComponents"
                              ComponentSaveRequested="OnComponentSaveRequested"
-                             ComponentDeleteRequested="OnComponentDeleteRequested" />
+                             ComponentDeleteRequested="OnComponentDeleteRequested"
+                             AgentId="Id" />
             </div>
             <div style="flex:1;min-width:280px">
                 <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" AgentId="Id" Graph="_graph" />
