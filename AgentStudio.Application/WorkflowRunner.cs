@@ -221,6 +221,27 @@ public sealed class WorkflowRunner
     /// node / no outgoing edge) or reaches <paramref name="stopAtNodeId"/> — the latter is how a
     /// parallel branch stops exactly at its Join node without executing it (the owning
     /// ParallelNode executes/logs the join once, after merging all branches).</summary>
+    /// <summary>The StartStep/try-work/CompleteStep(detail)/catch-FailStep-rethrow skeleton every
+    /// node case in RunSegmentAsync repeats verbatim — <paramref name="work"/> does the node's
+    /// own work and returns the detail string to log (or null for none). Deliberately not used
+    /// for the handful of cases (End/Message/Variable/Condition/Join) that don't fail this way —
+    /// forcing them in would either change behavior (they don't call FailStep today) or need
+    /// special-casing that defeats the point.</summary>
+    private async Task RunStepAsync(ExecutionLog log, WorkflowNode node, Func<Task<string?>> work)
+    {
+        var step = _logWriter.StartStep(log, node.Id, node.Type);
+        try
+        {
+            var detail = await work();
+            _logWriter.CompleteStep(step, detail);
+        }
+        catch (Exception ex)
+        {
+            _logWriter.FailStep(step, ex.Message);
+            throw;
+        }
+    }
+
     private async Task RunSegmentAsync(
         WorkflowGraph graph,
         WorkflowNode? current,
@@ -280,96 +301,65 @@ public sealed class WorkflowRunner
                 }
                 case HttpNode http:
                 {
-                    var step = _logWriter.StartStep(log, http.Id, http.Type);
-                    try
+                    await RunStepAsync(log, http, async () =>
                     {
                         var result = await _http.ExecuteAsync(Expand(http, variables), variables, ct);
                         variables[http.ResultVariable] = result;
-                        _logWriter.CompleteStep(step, $"http {http.Method} {http.Url}: {result.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"http {http.Method} {http.Url}: {result.Length} chars";
+                    });
                     current = NextByEdge(graph, http.Id, branch: null);
                     break;
                 }
                 case DocumentSearchNode search:
                 {
-                    var step = _logWriter.StartStep(log, search.Id, search.Type);
-                    try
+                    await RunStepAsync(log, search, async () =>
                     {
                         var query = ExpandTemplate(search.Query, variables);
                         var searchProvider = await ResolveProviderAsync(search.ProviderName, provider, ct);
                         var chunks = await _documentSearch.SearchAsync(agent.Id, query, search.TopK, searchProvider, ct);
                         variables[search.ResultVariable] = string.Join("\n\n", chunks);
-                        _logWriter.CompleteStep(step, $"documentSearch: {chunks.Count} chunks");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"documentSearch: {chunks.Count} chunks";
+                    });
                     current = NextByEdge(graph, search.Id, branch: null);
                     break;
                 }
                 case DatabaseQueryNode query:
                 {
-                    var step = _logWriter.StartStep(log, query.Id, query.Type);
-                    try
+                    await RunStepAsync(log, query, async () =>
                     {
                         var result = await _databaseQuery.ExecuteAsync(query, variables, ct);
                         variables[query.ResultVariable] = result;
-                        _logWriter.CompleteStep(step, $"databaseQuery {query.ConnectionName}: {result.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"databaseQuery {query.ConnectionName}: {result.Length} chars";
+                    });
                     current = NextByEdge(graph, query.Id, branch: null);
                     break;
                 }
                 case JsonParseNode jsonParse:
                 {
-                    var step = _logWriter.StartStep(log, jsonParse.Id, jsonParse.Type);
-                    try
+                    await RunStepAsync(log, jsonParse, () =>
                     {
                         var inputText = ExpandTemplate(jsonParse.Input, variables);
                         var result = JsonPathExtractor.Extract(inputText, jsonParse.Path);
                         variables[jsonParse.ResultVariable] = result;
-                        _logWriter.CompleteStep(step, $"jsonParse {jsonParse.Path}: {result.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return Task.FromResult<string?>($"jsonParse {jsonParse.Path}: {result.Length} chars");
+                    });
                     current = NextByEdge(graph, jsonParse.Id, branch: null);
                     break;
                 }
                 case ExpressionNode expr:
                 {
-                    var step = _logWriter.StartStep(log, expr.Id, expr.Type);
-                    try
+                    await RunStepAsync(log, expr, () =>
                     {
                         var result = FormulaEvaluator.Evaluate(expr.Formula, variables);
                         variables[expr.ResultVariable] = result;
-                        _logWriter.CompleteStep(step, $"expression: {result}");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return Task.FromResult<string?>($"expression: {result}");
+                    });
                     current = NextByEdge(graph, expr.Id, branch: null);
                     break;
                 }
                 case CollectionGetNode cget:
                 {
-                    var step = _logWriter.StartStep(log, cget.Id, cget.Type);
-                    try
+                    await RunStepAsync(log, cget, async () =>
                     {
                         var key = ExpandTemplate(cget.Key, variables);
                         if (string.IsNullOrWhiteSpace(key))
@@ -377,60 +367,42 @@ public sealed class WorkflowRunner
                         var stored = await _collections.GetAsync(agent.Id, key, ct);
                         var value = stored ?? ExpandTemplate(cget.DefaultValue, variables);
                         variables[cget.ResultVariable] = value;
-                        _logWriter.CompleteStep(step, $"collectionGet {key}: {(stored is null ? "default" : "stored")} value");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"collectionGet {key}: {(stored is null ? "default" : "stored")} value";
+                    });
                     current = NextByEdge(graph, cget.Id, branch: null);
                     break;
                 }
                 case CollectionSetNode cset:
                 {
-                    var step = _logWriter.StartStep(log, cset.Id, cset.Type);
-                    try
+                    await RunStepAsync(log, cset, async () =>
                     {
                         var key = ExpandTemplate(cset.Key, variables);
                         if (string.IsNullOrWhiteSpace(key))
                             throw new InvalidOperationException("collectionSet: Key is empty.");
                         var value = ExpandTemplate(cset.Value, variables);
                         await _collections.SetAsync(agent.Id, key, value, ct);
-                        _logWriter.CompleteStep(step, $"collectionSet {key}: {value.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"collectionSet {key}: {value.Length} chars";
+                    });
                     current = NextByEdge(graph, cset.Id, branch: null);
                     break;
                 }
                 case IntegratorNode integrator:
                 {
-                    var step = _logWriter.StartStep(log, integrator.Id, integrator.Type);
-                    try
+                    await RunStepAsync(log, integrator, async () =>
                     {
                         var impl = _integrators.FirstOrDefault(i => i.Name == integrator.IntegratorName)
                             ?? throw new InvalidOperationException($"Integrator '{integrator.IntegratorName}' is not registered.");
                         var expandedConfig = integrator.Config.ToDictionary(kv => kv.Key, kv => ExpandTemplate(kv.Value, variables));
                         var result = await impl.ExecuteAsync(expandedConfig, variables, ct);
                         variables[integrator.ResultVariable] = result;
-                        _logWriter.CompleteStep(step, $"integrator {integrator.IntegratorName}: {result.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"integrator {integrator.IntegratorName}: {result.Length} chars";
+                    });
                     current = NextByEdge(graph, integrator.Id, branch: null);
                     break;
                 }
                 case SubAgentNode sub:
                 {
-                    var step = _logWriter.StartStep(log, sub.Id, sub.Type);
-                    try
+                    await RunStepAsync(log, sub, async () =>
                     {
                         if (callDepth >= MaxSubAgentDepth)
                             throw new InvalidOperationException($"Sub-agent call depth exceeded ({MaxSubAgentDepth}) — likely a cycle between agents.");
@@ -460,21 +432,15 @@ public sealed class WorkflowRunner
                             buffer.Append(chunk);
 
                         variables[sub.ResultVariable] = buffer.ToString();
-                        _logWriter.CompleteStep(step, $"subAgent {targetAgent.Name}: {buffer.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"subAgent {targetAgent.Name}: {buffer.Length} chars";
+                    });
                     current = NextByEdge(graph, sub.Id, branch: null);
                     break;
                 }
                 case PromptNode prompt:
                 {
-                    var step = _logWriter.StartStep(log, prompt.Id, prompt.Type);
                     var buffer = new StringBuilder();
-                    try
+                    await RunStepAsync(log, prompt, async () =>
                     {
                         var promptText = ExpandTemplate(prompt.PromptTemplate, variables);
                         List<ChatMessage> messages;
@@ -493,13 +459,8 @@ public sealed class WorkflowRunner
 
                         variables[prompt.ResultVariable] = buffer.ToString();
                         lock (conversation) conversation.Messages.Add(new ChatMessage { Role = "assistant", Content = buffer.ToString() });
-                        _logWriter.CompleteStep(step, $"llm: {buffer.Length} chars");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logWriter.FailStep(step, ex.Message);
-                        throw;
-                    }
+                        return $"llm: {buffer.Length} chars";
+                    });
                     current = NextByEdge(graph, prompt.Id, branch: null);
                     break;
                 }

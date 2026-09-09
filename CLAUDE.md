@@ -65,6 +65,8 @@ Domain → Application → Infrastructure ↘
 
 The most common way to trip this: adding a new `WorkflowNode` subclass without adding its case to `WorkflowNodeConverter.Read` (`AgentStudio.Domain/AgentStudioJson.cs`) — the resulting `JsonException` during graph deserialization used to land outside the try/finally. **Whenever you add a new node type, add its JSON converter case and its `GraphMapper.ToDomain`/`ToDto` case in the same change**, before writing anything else.
 
+`RunSegmentAsync`'s per-node-type `switch` — the 10 cases that call out to something that can fail (`http`, `documentSearch`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`/`Set`, `integrator`, `subAgent`, `prompt`) all shared the exact same `StartStep → try work → CompleteStep(detail) → catch → FailStep+rethrow` skeleton — factored into `RunStepAsync(log, node, Func<Task<string?>> work)`. Deliberately **not** used for `end`/`message`/`variable`/`condition`/`join` — those don't call `FailStep` on their own step today (an exception there propagates straight to `ExecuteAsync`'s outer catch), and `parallel` has its own multi-branch orchestration; forcing any of them through `RunStepAsync` would either change that behavior or need special-casing that defeats the point of extracting it.
+
 Other runner details worth knowing:
 - Loops are cycles in the graph, guarded by `AgentVersion.MaxSteps` (a per-run step counter, not a distinct "loop node").
 - `ParallelNode`/`JoinNode` fan out branches concurrently; each branch buffers its output via a `ChunkSink` delegate instead of writing straight to the channel, so concurrent branches' streamed text never interleaves — the `JoinNode` flushes each branch's buffer in declared edge order once all branches finish.
