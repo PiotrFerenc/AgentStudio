@@ -1580,3 +1580,94 @@ grafami nie istnieje w ogóle.
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 11
+
+## 1. Cel fazy 11
+
+Kolejna z listy inspirowanej Copilot/Power Apps (pozycja #6 — "Trigger poza chat/form"):
+uruchamianie agenta bez żywego rozmówcy po drugiej stronie — webhook (zewnętrzny system
+wysyła payload) i harmonogram (agent uruchamia się sam, cyklicznie).
+
+## 2. Zasady projektowe (ladder)
+
+- **Webhook to nowy endpoint, nie rozszerzenie `/conversations`.** Istniejący
+  `/conversations` już dziś przyjmuje POST z API key — technicznie "webhook" w sensie "obcy
+  system może uderzyć w URL". Różnica, która uzasadnia osobny endpoint: `/conversations`
+  wymaga kształtu `{"message": ..., "conversationId": ...}`, a nadawca webhooka (GitHub,
+  Stripe, alert z monitoringu) ma WŁASNY kształt payloadu i nie ma wiadomości czatu do
+  wysłania. `/webhook` przyjmuje dowolny JSON i spłaszcza klucze najwyższego poziomu do
+  `variables.x` — dokładnie ten sam mechanizm co `formValues` przy `/run`, więc zero nowej
+  logiki w `WorkflowRunner`, tylko nowy sposób jej zasilenia.
+- **Harmonogram to stały interwał, nie parser wyrażeń cron.** Prawdziwy cron (dni tygodnia,
+  konkretne godziny) wymaga poprawnego parsera — dobrze znana pułapka do napisania od zera bez
+  biblioteki, a w projekcie zero nowych zależności NuGet trzymane od fazy 1. "Co N minut"
+  (najprostsze możliwe rozwiązanie: `now - LastScheduledRunAt >= N minut`) pokrywa realny cel
+  ("uruchamia się automatycznie") bez tego kosztu.
+- **Harmonogram na `Agent`, nie na `AgentVersion`.** Wersje są niemutowalne po publikacji
+  ("Immutable once published") i bywają zastępowane nowszymi. Gdyby harmonogram żył na
+  konkretnej wersji, publikacja nowej wersji ciągle uruchamiałaby starą — harmonogram musi
+  zawsze sięgać po **aktualnie** najnowszą opublikowaną wersję w momencie odpalenia, ten sam
+  lookup co `SubAgentNode` już robi.
+- **Jeden proces, sekwencyjne odpalanie w jednym przebiegu pollingu — bez rozproszonej
+  blokady.** Odpalanie agentów jeden po drugim w ramach jednego tick'a eliminuje nakładanie
+  się dwóch przebiegów tego samego agenta bez żadnego dodatkowego kodu (drift interwału przy
+  wielu agentach due naraz to akceptowalny koszt). Wielo-instancyjne wdrożenie podwójnie
+  odpali harmonogramy — udokumentowane wprost w DEPLOYMENT.md jako świadome ograniczenie
+  fazy 1 tej funkcjonalności, nie przeoczenie.
+- **`LastScheduledRunAt` aktualizowany dopiero po ukończeniu `RunAsync`, nie przy wyjątku.**
+  `WorkflowRunner` z założenia nigdy nie rzuca przy błędzie wewnątrz grafu (yielduje tekst
+  `[error] ...` zamiast tego — krytyczny niezmiennik z fazy 2 etap 4). Wyjątek docierający do
+  `ScheduledRunner` oznacza więc awarię POZA grafem (np. brakujący provider) — nieaktualizowanie
+  znacznika daje szybki retry na następnym pollu zamiast czekania pełnego interwału na problem
+  konfiguracyjny, który ktoś może akurat naprawiać.
+- **Guard przeciw "enabled bez interwału" w `AgentService`, nie tylko w runnerze.** Walidacja
+  blisko miejsca zapisu — wiersz w bazie z `ScheduleEnabled=true` i `ScheduleIntervalMinutes=
+  null` nigdy nie powinien powstać, żeby nie sugerować jakiegoś domyślnego cyklu, którego nie ma.
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Agent.cs` (klasa `Agent`): `ScheduleEnabled`, `ScheduleIntervalMinutes`,
+  `ScheduleInput`, `LastScheduledRunAt`.
+- `AgentStudio.Application/AgentService.cs`: `UpdateScheduleAsync(agentId, enabled,
+  intervalMinutes, input)` — guard `enabled && (interval is null or <1)` rzuca czytelnie.
+- `AgentStudio.Web/Services/StudioApiClient.cs`: `UpdateScheduleAsync` — cienki wrapper.
+- Migracja EF `AddAgentSchedule` (4 nowe kolumny na `Agents`) — zastosowana na dev Postgres.
+- `AgentStudio.Infrastructure/ScheduledRunner.cs` (nowy plik): `ScheduledRunnerOptions
+  { Enabled=true, PollInterval=30s }`, `ScheduledRunner : BackgroundService` (ten sam kształt
+  co `ConversationRetentionService`) — `RunDueSchedulesAsync` publiczna (testowalna bez
+  czekania na pętlę), per-agent try/catch (jedna awaria nie blokuje reszty przebiegu).
+- `AgentStudio.Infrastructure/DependencyInjection.cs`: rejestracja opcji + hosted service.
+- `AgentStudio.Web/Program.cs`: `POST /api/agents/{id}/versions/{v}/webhook` — dowolny JSON →
+  spłaszczone `variables.x` → `RunAsync(..., formValues: values)`, `webhook-{guid}`
+  ConversationId, niepoprawny JSON → 400 zamiast 500, pusty body → brak zmiennych.
+- `AgentStudio.Web/Components/Pages/AgentDetail.razor`: panel "Schedule" (checkbox enabled +
+  interwał w minutach + input + zapis + "last run"), link webhooka obok `/chat`/`/run` przy
+  każdej opublikowanej wersji.
+- `DEPLOYMENT.md`: sekcja "Scheduled agent triggers" (domyślnie włączone, w przeciwieństwie do
+  `ConversationRetention", ostrzeżenie o braku rozproszonej blokady przy wielu instancjach).
+
+## 4. Testy ✅
+
+- `AgentServiceScheduleTests.cs` (nowy plik, 5 testów, InMemory EF przez prawdziwy
+  `AgentRepository`): zapis wszystkich pól, włączenie bez interwału / z interwałem ≤0 →
+  czytelny błąd, wyłączenie nie wymaga interwału, brakujący agent → czytelny błąd.
+- `ScheduledRunnerTests.cs` (nowy plik, 5 testów, lekkie lokalne fake'i + prawdziwy
+  `WorkflowRunner`): agent due uruchamia się i aktualizuje `LastScheduledRunAt`, wyłączony
+  agent nigdy nie odpala, interwał jeszcze nienależny pomijany, przeterminowany odpala
+  ponownie, awaria jednego agenta (nieistniejący provider) nie blokuje pozostałych due w tym
+  samym przebiegu i nie aktualizuje jego `LastScheduledRunAt`.
+- 238/238 testów zielonych.
+- Zweryfikowane end-to-end na żywym serwerze i realnym Postgresie: webhook z dowolnym
+  payloadem (`{"repo":..., "action":...}`, nie kształt czatu) poprawnie zmapowany na zmienne i
+  przetworzony przez węzeł `expression` (`CONCAT`); pusty body → brak crasha; niepoprawny JSON
+  → czytelne `400`. Harmonogram: `ScheduleEnabled`/`ScheduleIntervalMinutes` ustawione
+  bezpośrednio w bazie na żywym, działającym procesie — `ScheduledRunner` sam, bez żadnej
+  interakcji z zewnątrz, odpalił run w ciągu jednego pollu (log wykonania z prefiksem
+  `schedule-`, status `completed`, `LastScheduledRunAt` zaktualizowany) — dowód że
+  `BackgroundService` faktycznie wystartował i działa w prawdziwym procesie aplikacji, nie
+  tylko w testach jednostkowych z fake'ami.
+
+## 5. Status
+
+✅ Zrealizowane.

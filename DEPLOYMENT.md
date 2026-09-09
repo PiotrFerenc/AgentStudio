@@ -234,6 +234,26 @@ operators who choose to turn it on:
 Runs once at startup and then every 24h (`CheckInterval`, also configurable, not usually needed).
 Deleted conversations are gone — there's no separate archive.
 
+### Scheduled agent triggers (on by default)
+
+`ScheduledRunner` (`AgentStudio.Infrastructure`) polls every 30s for agents with a schedule
+turned on (per-agent, from the agent's own page) and fires a fresh run of the latest published
+version. Unlike conversation retention, the poll loop itself is **enabled by default** — the
+per-agent `ScheduleEnabled` flag is the real switch operators use; there'd be no point leaving
+the loop off by default. To disable the whole mechanism (e.g. a read-replica instance that
+shouldn't fire triggers):
+
+```json
+{
+  "ScheduledRunner": { "Enabled": false }
+}
+```
+
+Single-process, no distributed lock: running more than one `AgentStudio.Web` instance against
+the same database means every instance's poll loop fires the same due schedules independently
+— each publishes its own duplicate run. Fine for one instance; don't turn schedules on if you're
+already running more than one instance against a shared database without addressing this.
+
 Uploaded RAG documents are **not** in the database — only their chunk text/embeddings are (in
 `DocumentChunks`); the raw files live on the local filesystem at `Documents:StoragePath`
 (default `App_Data/documents` under the app's content root). Back that directory up separately,

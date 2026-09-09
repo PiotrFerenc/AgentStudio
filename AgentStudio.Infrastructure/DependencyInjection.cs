@@ -60,6 +60,8 @@ public static class DependencyInjection
         services.AddTransient<IIntegrator, JiraCreateIssueIntegrator>();
         services.Configure<ConversationRetentionOptions>(config.GetSection("ConversationRetention"));
         services.AddHostedService<ConversationRetentionService>();
+        services.Configure<ScheduledRunnerOptions>(config.GetSection("ScheduledRunner"));
+        services.AddHostedService<ScheduledRunner>();
         services.AddScoped<WorkflowRunner>();
         services.AddScoped<AgentService>();
         services.AddSingleton<IApiKeyService, ApiKeyService>();

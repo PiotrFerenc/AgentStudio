@@ -122,6 +122,21 @@ public sealed class AgentService
         return rawKey;
     }
 
+    /// <summary>Updates the agent's scheduled-trigger config (phase 11). A disabled/null
+    /// interval never fires — enforced here (not just in the runner) so a stray "enabled" flag
+    /// with no interval can't slip through and get treated as some implicit default.</summary>
+    public async Task UpdateScheduleAsync(Guid agentId, bool enabled, int? intervalMinutes, string input, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        if (enabled && (intervalMinutes is null || intervalMinutes < 1))
+            throw new InvalidOperationException("A schedule needs an interval of at least 1 minute.");
+        agent.ScheduleEnabled = enabled;
+        agent.ScheduleIntervalMinutes = intervalMinutes;
+        agent.ScheduleInput = input;
+        agent.UpdatedAt = DateTimeOffset.UtcNow;
+        await _agents.SaveChangesAsync(ct);
+    }
+
     /// <summary>Marks a published version as Unpublished. Not allowed for drafts.</summary>
     public async Task<AgentVersion> UnpublishAsync(Guid agentId, int version, CancellationToken ct = default)
     {

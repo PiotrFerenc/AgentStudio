@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 228 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 238 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -123,6 +123,37 @@ curl -X POST http://localhost:5251/api/agents/$ID/versions/1/conversations \
 `conversationId` utrzymuje wieloturową rozmowę trwale w Postgresie (faza 2) — bez TTL domyślnie,
 przeżywa restart aplikacji. Opcjonalny job czyszczący stare rozmowy — `ConversationRetention`
 w DEPLOYMENT.md, wyłączony domyślnie.
+
+## Wyzwalacze poza chat/form (faza 11)
+
+Dwa sposoby uruchomienia agenta bez żywego rozmówcy po drugiej stronie:
+
+**Webhook** — `POST /api/agents/{id}/versions/{v}/webhook` (ten sam nagłówek
+`X-Agent-Api-Key`) przyjmuje **dowolny** JSON, nie kształt `{"message": ...}`. Klucze na
+najwyższym poziomie stają się `{variables.x}` w grafie — ten sam mechanizm co `formValues`
+formularza. Bez `message` (nie ma go skąd wziąć — nadawca webhooka to zewnętrzny system, nie
+użytkownik piszący w czacie). Pusty/brakujący body = brak zmiennych, nie błąd. Niepoprawny JSON
+= czytelne `400`, nie 500.
+
+```bash
+curl -X POST http://localhost:5251/api/agents/$ID/versions/1/webhook \
+  -H "X-Agent-Api-Key: ask_..." -H "Content-Type: application/json" \
+  -d '{"repo":"org/repo","action":"push"}'
+```
+
+**Harmonogram** — panel agenta ma pole "Schedule": włącz, ustaw interwał w minutach i opcjonalny
+tekst wejściowy (używany jako `{input}` przy każdym uruchomieniu — nie ma żywego rozmówcy, więc
+input trzeba podać z góry). `ScheduledRunner` (`AgentStudio.Infrastructure`) odpytuje co 30s,
+uruchamia **zawsze najnowszą opublikowaną wersję** (nie zamraża się do wersji sprzed włączenia
+harmonogramu) w świeżej, jednorazowej rozmowie (prefiks `schedule-` w `ConversationId`, ten sam
+wzorzec co `form-`/`webhook-`). To luźne "cron" — stały interwał, nie prawdziwy parser wyrażeń
+cron (zero nowej zależności, "uruchamia się automatycznie co N minut" pokrywa realny use case
+bez potrzeby biblioteki do harmonogramów kalendarzowych). Wyniki widoczne w logu wykonań agenta
+jak każdy inny run. Domyślnie **włączone na poziomie usługi** (w przeciwieństwie do
+`ConversationRetention`) — prawdziwym przełącznikiem jest flaga per-agent, nie sens miałoby
+wyłączenie całego mechanizmu domyślnie. Jeden proces, bez rozproszonej blokady — więcej niż
+jedna instancja `AgentStudio.Web` przeciw tej samej bazie odpali te same harmonogramy
+wielokrotnie (patrz DEPLOYMENT.md).
 
 ## Widget i publiczny chat
 
@@ -261,7 +292,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 228 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 238 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -305,7 +336,14 @@ dotnet test
 # pozycji względem własnego bounding boxa komponentu, deep-copy zagnieżdżonych słowników —
 # dwa sklonowania tego samego komponentu nigdy nie współdzielą stanu, dwa sklonowania nigdy
 # nie kolidują po id, pusty komponent zwraca puste listy), GraphComponentRepository (add+list
-# posortowane po nazwie, get nieistniejącego zwraca null, delete faktycznie usuwa)
+# posortowane po nazwie, get nieistniejącego zwraca null, delete faktycznie usuwa),
+# ScheduledRunner (agent due uruchamia się i aktualizuje LastScheduledRunAt, wyłączony agent
+# nigdy nie odpala, interwał jeszcze nienależny pomijany, przeterminowany odpala ponownie,
+# awaria jednego agenta — brakujący provider — nie blokuje pozostałych due w tym samym
+# przebiegu i nie aktualizuje LastScheduledRunAt, żeby kolejny poll spróbował od razu),
+# AgentService.UpdateScheduleAsync (zapisuje wszystkie pola, włączenie bez interwału/z
+# interwałem <=0 → czytelny błąd, wyłączenie nie wymaga interwału, brakujący agent → czytelny
+# błąd)
 ```
 
 ## Wdrożenie (Windows/IIS)

@@ -30,6 +30,22 @@ else
             <label style="display:inline;margin:0" title="Safety cap on total node executions per run — also the loop-iteration guard.">Max steps</label>
             <input type="number" min="1" style="width:6em;display:inline-block;margin:0 0 0 .4rem" @bind="_maxSteps" @bind:event="oninput" />
         </p>
+        <p style="margin-top:.5rem" title="Runs the latest published version automatically, using Input as {input} — independent of chat/form/webhook triggers.">
+            <label style="display:inline;margin:0">Schedule</label>
+            <input type="checkbox" style="margin:0 .3rem 0 .5rem;vertical-align:middle" @bind="_scheduleEnabled" />
+            <label style="display:inline;margin:0">every</label>
+            <input type="number" min="1" style="width:5em;display:inline-block;margin:0 .3rem" @bind="_scheduleIntervalMinutes" @bind:event="oninput" /> min
+            <input type="text" placeholder="Input for each run" style="width:14em;display:inline-block;margin:0 .3rem" @bind="_scheduleInput" @bind:event="oninput" />
+            <button class="secondary" style="padding:.15rem .6rem;font-size:.75rem" @onclick="SaveScheduleAsync">Save schedule</button>
+            @if (Agent.LastScheduledRunAt is not null)
+            {
+                <span style="margin-left:.5rem;color:#868e96;font-size:.8rem">last run: @Agent.LastScheduledRunAt.Value.ToLocalTime().ToString("g")</span>
+            }
+            @if (_scheduleMessage is not null)
+            {
+                <span style="margin-left:.5rem;font-size:.8rem">@_scheduleMessage</span>
+            }
+        </p>
         @if (_newApiKey is not null)
         {
             <p style="margin-top:.5rem">
@@ -61,6 +77,9 @@ else
                                     @onclick="() => CopyFormLink(v.Version)">copy</button>
                         </div>
                     }
+                    <div style="margin:.1rem 0 .25rem;color:#868e96;font-size:.8rem">
+                        webhook: <code>POST /api/agents/@Agent.Id/versions/@v.Version/webhook</code> (header <code>X-Agent-Api-Key</code>, any JSON body — top-level keys become <code>{variables.x}</code>)
+                    </div>
                 }
             </p>
         }
@@ -490,6 +509,10 @@ else
     private GraphEditor? _editor;
     private string DraftStatus = "";
     private int _maxSteps = 100;
+    private bool _scheduleEnabled;
+    private int? _scheduleIntervalMinutes;
+    private string _scheduleInput = "";
+    private string? _scheduleMessage;
     private List<FormField> _formFields = new();
     private string _formResultMode = "inline";
     private string? _formResultTarget;
@@ -602,6 +625,12 @@ else
     private async Task LoadAsync()
     {
         Agent = await Api.GetAgentAsync(Id);
+        if (Agent is not null)
+        {
+            _scheduleEnabled = Agent.ScheduleEnabled;
+            _scheduleIntervalMinutes = Agent.ScheduleIntervalMinutes;
+            _scheduleInput = Agent.ScheduleInput;
+        }
         if (Agent?.Draft is not null)
         {
             _graph = GraphMapper.ToDto(Agent.Draft.Graph);
@@ -667,6 +696,20 @@ else
     {
         var idx = _graph.Nodes.FindIndex(n => n.Id == node.Id);
         if (idx >= 0) _graph.Nodes[idx] = node;
+    }
+
+    private async Task SaveScheduleAsync()
+    {
+        try
+        {
+            await Api.UpdateScheduleAsync(Id, _scheduleEnabled, _scheduleIntervalMinutes, _scheduleInput);
+            Agent = await Api.GetAgentAsync(Id);
+            _scheduleMessage = "Saved.";
+        }
+        catch (Exception ex)
+        {
+            _scheduleMessage = ex.Message;
+        }
     }
 
     private async Task OnComponentSaveRequested((string Name, WorkflowGraphDto Graph) req)

@@ -339,6 +339,59 @@ runtimeApi.MapPost("/agents/{id:guid}/versions/{version:int}/stream", async (
     return Results.Empty;
 }).DisableAntiforgery();
 
+// Trigger from an arbitrary external system (GitHub, Stripe, a monitoring alert, ...) whose
+// payload doesn't look like {"message": "...", "conversationId": ...} — top-level JSON keys
+// flatten into variables.<key>, the same mechanism RunForm.razor's formValues already uses for
+// named form fields. No "message" required; a webhook sender doesn't have one to send. Each
+// call is a fresh, throwaway run (never a resumed conversation) — same choice as a scheduled
+// run, identified the same way via its ConversationId prefix.
+runtimeApi.MapPost("/agents/{id:guid}/versions/{version:int}/webhook", async (
+    Guid id, int version, HttpContext http,
+    IAgentRepository agents, IProviderRepository providers, AgentService service,
+    WorkflowRunner runner, CancellationToken ct) =>
+{
+    var apiKey = http.Request.Headers["X-Agent-Api-Key"].FirstOrDefault();
+    var (agent, published, provider, error) = await ResolveRuntimeAsync(id, version, apiKey, agents, providers, service, ct);
+    if (error is not null) return error;
+
+    var values = new Dictionary<string, string>();
+    using var reader = new StreamReader(http.Request.Body);
+    var body = await reader.ReadToEndAsync(ct);
+    if (!string.IsNullOrWhiteSpace(body))
+    {
+        System.Text.Json.JsonDocument doc;
+        try
+        {
+            doc = System.Text.Json.JsonDocument.Parse(body);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return Results.BadRequest(new { error = $"Webhook body is not valid JSON: {ex.Message}" });
+        }
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    values[prop.Name] = prop.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? prop.Value.GetString() ?? ""
+                        : prop.Value.GetRawText();
+        }
+    }
+
+    var conversation = new ConversationState
+    {
+        ConversationId = $"webhook-{Guid.NewGuid():N}",
+        AgentId = agent!.Id,
+        AgentVersion = published!.Version
+    };
+
+    var reply = new StringBuilder();
+    await foreach (var chunk in runner.RunAsync(agent, published, provider!, conversation, "", ct, formValues: values))
+        reply.Append(chunk);
+
+    return Results.Ok(new ConversationResponse(conversation.ConversationId, reply.ToString(), runner.LastExecutionId ?? ""));
+}).DisableAntiforgery();
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -15,6 +15,20 @@ public sealed class Agent
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>Scheduled trigger (phase 11) — lives on the agent, not a specific AgentVersion,
+    /// since a recurring schedule should always run whatever is currently the latest published
+    /// version, not freeze to whichever version existed when the schedule was turned on.
+    /// "Cron" only in the loose sense: a fixed-interval poll (ScheduledRunner, every 30s checks
+    /// ScheduleIntervalMinutes since LastScheduledRunAt), not a real cron expression parser —
+    /// the smallest thing that delivers "runs automatically" without a new dependency.</summary>
+    public bool ScheduleEnabled { get; set; }
+    public int? ScheduleIntervalMinutes { get; set; }
+
+    /// <summary>Used as the userMessage ("{input}") for every scheduled run — there's no live
+    /// requester to type one.</summary>
+    public string ScheduleInput { get; set; } = "";
+    public DateTimeOffset? LastScheduledRunAt { get; set; }
+
     /// <summary>Draft is the AgentVersion with Status=Draft/Validated. Not mapped.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public AgentVersion? Draft => Versions.FirstOrDefault(v => v.Status is AgentVersionStatus.Draft or AgentVersionStatus.Validated);

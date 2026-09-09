@@ -84,6 +84,9 @@ public sealed class StudioApiClient
     public Task<string> RegenerateApiKeyAsync(Guid agentId, CancellationToken ct = default) =>
         _agentService.RegenerateApiKeyAsync(agentId, ct);
 
+    public Task UpdateScheduleAsync(Guid agentId, bool enabled, int? intervalMinutes, string input, CancellationToken ct = default) =>
+        _agentService.UpdateScheduleAsync(agentId, enabled, intervalMinutes, input, ct);
+
     public Task<AgentVersion> UnpublishAsync(Guid agentId, int version, CancellationToken ct = default) =>
         _agentService.UnpublishAsync(agentId, version, ct);
 
