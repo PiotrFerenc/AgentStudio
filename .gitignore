@@ -4,3 +4,4 @@ obj/
 .vs/
 .vscode/
 appsettings.*.local.json
+AgentStudio.Web/appsettings.Development.json
