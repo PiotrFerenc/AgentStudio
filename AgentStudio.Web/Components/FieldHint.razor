@@ -1,0 +1,10 @@
+@if (!string.IsNullOrEmpty(Text))
+{
+    <small class="field-hint">@Text</small>
+}
+
+@code {
+    /// <summary>Short parameter description shown under a node-properties field label — see
+    /// NodeCatalog. Renders nothing when the catalog has no description for this key.</summary>
+    [Parameter] public string? Text { get; set; }
+}

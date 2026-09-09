@@ -7,37 +7,48 @@
 }
 else
 {
-    <h3>@Node.Type (@Node.Id)</h3>
+    <h3>@(Info?.Title ?? Node.Type) (@Node.Id)</h3>
+    @if (Info is not null)
+    {
+        <p style="color:#57565e;font-size:.85rem;margin-top:-.3rem">@Info.Summary</p>
+    }
     <label>Label</label>
     <input type="text" @bind="Node.Label" @bind:event="oninput" @bind:after="Changed" />
 
     @switch (Node.Type)
     {
         case "prompt":
-            <label>Prompt template (use {input}, {variables.name})</label>
+            <label>Prompt template</label>
+            <FieldHint Text="@Hint("promptTemplate")" />
             <textarea @bind="PromptTemplate" @bind:event="oninput" @bind:after="Changed"></textarea>
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="ResultVariable" @bind:event="oninput" @bind:after="Changed" />
             break;
         case "message":
             <label>Message text</label>
+            <FieldHint Text="@Hint("text")" />
             <textarea @bind="MessageText" @bind:event="oninput" @bind:after="Changed"></textarea>
             break;
         case "condition":
-            <label>Left (e.g. variables.status or input)</label>
+            <label>Left</label>
+            <FieldHint Text="@Hint("left")" />
             <input type="text" @bind="CondLeft" @bind:event="oninput" @bind:after="Changed" />
             <label>Operator</label>
+            <FieldHint Text="@Hint("operator")" />
             <select @bind="CondOperator" @bind:after="Changed">
                 @foreach (var op in Operators)
                 {
                     <option value="@op">@op</option>
                 }
             </select>
-            <label>Right (literal or variables.x)</label>
+            <label>Right</label>
+            <FieldHint Text="@Hint("right")" />
             <input type="text" @bind="CondRight" @bind:event="oninput" @bind:after="Changed" />
             break;
         case "http":
             <label>Method</label>
+            <FieldHint Text="@Hint("method")" />
             <select @bind="HttpMethod" @bind:after="Changed">
                 @foreach (var m in Methods)
                 {
@@ -45,33 +56,43 @@ else
                 }
             </select>
             <label>URL</label>
+            <FieldHint Text="@Hint("url")" />
             <input type="text" @bind="HttpUrl" @bind:event="oninput" @bind:after="Changed" />
             <label>JSON body (optional)</label>
+            <FieldHint Text="@Hint("body")" />
             <textarea @bind="HttpBody" @bind:event="oninput" @bind:after="Changed"></textarea>
             <label>Timeout (seconds)</label>
+            <FieldHint Text="@Hint("timeoutSeconds")" />
             <input type="text" @bind="HttpTimeout" @bind:event="oninput" @bind:after="Changed" />
             <label>Retries</label>
+            <FieldHint Text="@Hint("retries")" />
             <input type="text" @bind="HttpRetries" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="HttpResultVariable" @bind:event="oninput" @bind:after="Changed" />
             break;
         case "variable":
             <label>Variable name</label>
+            <FieldHint Text="@Hint("name")" />
             <input type="text" @bind="VarName" @bind:event="oninput" @bind:after="Changed" />
             <label>Value</label>
+            <FieldHint Text="@Hint("value")" />
             <input type="text" @bind="VarValue" @bind:event="oninput" @bind:after="Changed" />
             break;
         case "documentSearch":
-            <label>Query (use {input}, {variables.name})</label>
+            <label>Query</label>
+            <FieldHint Text="@Hint("query")" />
             <input type="text" @bind="SearchQuery" @bind:event="oninput" @bind:after="Changed" />
-            <label>Top K (number of chunks)</label>
+            <label>Top K</label>
+            <FieldHint Text="@Hint("topK")" />
             <input type="text" @bind="SearchTopK" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="SearchResultVariable" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Searches this agent's uploaded documents (Documents tab). Requires the agent's provider to have an embedding model configured (Providers page).</p>
             break;
         case "subAgent":
             <label>Target agent</label>
+            <FieldHint Text="@Hint("targetAgentId")" />
             <select @bind="SubAgentTargetId" @bind:after="Changed">
                 <option value="">-- select --</option>
                 @foreach (var a in AvailableAgents ?? new())
@@ -79,14 +100,16 @@ else
                     <option value="@a.Id">@a.Name</option>
                 }
             </select>
-            <label>Input (use {input}, {variables.name})</label>
+            <label>Input</label>
+            <FieldHint Text="@Hint("inputTemplate")" />
             <input type="text" @bind="SubAgentInputTemplate" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="SubAgentResultVariable" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Calls the target agent's published version as a one-shot step — its own conversation, not shared with this one. Needs at least one published version.</p>
             break;
         case "databaseQuery":
             <label>Connection</label>
+            <FieldHint Text="@Hint("connectionName")" />
             <select @bind="DbConnectionName" @bind:after="Changed">
                 <option value="">-- select --</option>
                 @foreach (var c in AvailableConnections ?? new())
@@ -94,55 +117,65 @@ else
                     <option value="@c.Name">@c.Name @(c.ReadOnly ? "" : "(write)")</option>
                 }
             </select>
-            <label>SQL query (@@name placeholders — never {variables.x} directly, that's SQL injection)</label>
+            <label>SQL query</label>
+            <FieldHint Text="@Hint("query")" />
             <textarea @bind="DbQuery" @bind:event="oninput" @bind:after="Changed"></textarea>
-            <label>Parameters (one per line: name=value, value supports {input}/{variables.x})</label>
+            <label>Parameters (one per line: name=value)</label>
+            <FieldHint Text="@Hint("parameters")" />
             <textarea @bind="DbParametersText" @bind:after="Changed" placeholder="status=variables.status"></textarea>
             <label>Timeout (seconds)</label>
+            <FieldHint Text="@Hint("timeoutSeconds")" />
             <input type="text" @bind="DbTimeout" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="DbResultVariable" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Result is a JSON array of rows, written to the variable. Read-only connections only allow a single SELECT.</p>
             break;
         case "jsonParse":
-            <label>Input (JSON text — use {input}/{variables.x}, e.g. an earlier http/databaseQuery/integrator result)</label>
+            <label>Input</label>
+            <FieldHint Text="@Hint("input")" />
             <input type="text" @bind="JsonParseInput" @bind:event="oninput" @bind:after="Changed" />
-            <label>Path (dot/bracket, e.g. data.items[0].name)</label>
+            <label>Path</label>
+            <FieldHint Text="@Hint("path")" />
             <input type="text" @bind="JsonParsePath" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="JsonParseResultVariable" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Extracts one value out of a JSON blob. Fails clearly (not silently empty) if the input isn't valid JSON or the path doesn't exist.</p>
             break;
         case "expression":
             <label>Formula</label>
+            <FieldHint Text="@Hint("formula")" />
             <textarea @bind="ExpressionFormula" @bind:after="Changed" placeholder='IF({variables.age} &gt;= 18, "adult", "minor")'></textarea>
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="ExpressionResultVariable" @bind:event="oninput" @bind:after="Changed" />
             <p style="color:#868e96;font-size:.8rem">
                 Arithmetic <code>+ - * /</code>, comparisons <code>== != &lt; &gt; &lt;= &gt;=</code>, logic <code>&amp;&amp; || !</code>, parens.
                 Functions: <code>IF(cond,a,b)</code>, <code>CONCAT(a,b,...)</code>, <code>LEN(s)</code>, <code>UPPER(s)</code>, <code>LOWER(s)</code>,
-                <code>TRIM(s)</code>, <code>ROUND(n,digits)</code>, <code>ABS(n)</code>. Use <code>{input}</code>/<code>{variables.x}</code> for values —
-                a numeric-looking variable is treated as a number automatically.
+                <code>TRIM(s)</code>, <code>ROUND(n,digits)</code>, <code>ABS(n)</code>.
             </p>
             break;
         case "collectionGet":
             <label>Key</label>
+            <FieldHint Text="@Hint("key")" />
             <input type="text" @bind="CollectionGetKey" @bind:event="oninput" @bind:after="Changed" placeholder="user-{variables.userId}" />
-            <label>Default value (used when the key was never set)</label>
+            <label>Default value</label>
+            <FieldHint Text="@Hint("defaultValue")" />
             <input type="text" @bind="CollectionGetDefault" @bind:event="oninput" @bind:after="Changed" />
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="CollectionGetResultVariable" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Reads a key from this agent's persistent collection — survives across runs and conversations, unlike a normal variable.</p>
             break;
         case "collectionSet":
             <label>Key</label>
+            <FieldHint Text="@Hint("key")" />
             <input type="text" @bind="CollectionSetKey" @bind:event="oninput" @bind:after="Changed" placeholder="user-{variables.userId}" />
             <label>Value</label>
+            <FieldHint Text="@Hint("value")" />
             <input type="text" @bind="CollectionSetValue" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Writes a key to this agent's persistent collection. Both fields support {input}/{variables.x}.</p>
             break;
         case "integrator":
             <label>Integrator</label>
+            <FieldHint Text="@Hint("integratorName")" />
             <select @bind="IntegratorName" @bind:after="Changed">
                 <option value="">-- select --</option>
                 @foreach (var i in AvailableIntegrators ?? new())
@@ -150,24 +183,17 @@ else
                     <option value="@i.Name">@i.Name — @i.Description</option>
                 }
             </select>
-            <label>Config (one per line: name=value, value supports {input}/{variables.x})</label>
+            <label>Config (one per line: name=value)</label>
+            <FieldHint Text="@Hint("config")" />
             <textarea @bind="IntegratorConfigText" @bind:after="Changed" placeholder="projectId=42&#10;title=New issue"></textarea>
             <label>Result variable</label>
+            <FieldHint Text="@Hint("resultVariable")" />
             <input type="text" @bind="IntegratorResultVariable" @bind:event="oninput" @bind:after="Changed" />
-            <p style="color:#868e96;font-size:.8rem">Custom integration with an external system (GitLab, Jira, ...). New integrators are written as code, not configured here — see CLAUDE.md.</p>
             break;
         case "end":
             <label>Output template (optional)</label>
+            <FieldHint Text="@Hint("outputTemplate")" />
             <textarea @bind="EndOutput" @bind:event="oninput" @bind:after="Changed"></textarea>
-            break;
-        case "start":
-            <p>Entry point of the workflow.</p>
-            break;
-        case "parallel":
-            <p>Fan-out: link this node to 2+ targets (drag from its port, one connection at a time). All branches run concurrently and must reconverge at a single Join node.</p>
-            break;
-        case "join":
-            <p>Fan-in: where a parallel split's branches reconverge. Link the split's branches here; continue the workflow from this node's own outgoing edge.</p>
             break;
     }
 
@@ -261,6 +287,8 @@ else
     }
 
     private WorkflowNodeDto? Node => SelectedNode;
+    private NodeInfo? Info => Node is null ? null : NodeCatalog.Get(Node.Type);
+    private string? Hint(string key) => Info?.ParamDescription(key);
 
     private static readonly string[] Operators = { "Equals", "NotEquals", "Contains", "StartsWith", "EndsWith", "GreaterThan", "LessThan", "GreaterOrEqual", "LessOrEqual" };
     private static readonly string[] Methods = { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" };

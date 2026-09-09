@@ -4,7 +4,7 @@
     <span>Add:</span>
     @foreach (var t in NodeTypes)
     {
-        <button class="graph-add-btn" @onclick="() => AddNode(t)">@t</button>
+        <button class="graph-add-btn" title="@(NodeCatalog.Get(t)?.Summary)" @onclick="() => AddNode(t)">@t</button>
     }
     <button class="graph-add-btn danger" @onclick="DeleteSelected" disabled="@(SelectedNode is null && _selectedEdge is null)">Delete selected</button>
     <span class="graph-zoom">
