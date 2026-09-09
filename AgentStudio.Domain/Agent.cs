@@ -307,6 +307,26 @@ public sealed class ExpressionNode : WorkflowNode
     public string ResultVariable { get; set; } = "result";
 }
 
+/// <summary>Reads one key from the agent's persistent collection (phase 9) — survives across
+/// runs/conversations, unlike a normal workflow variable. <see cref="DefaultValue"/> (template-
+/// expanded, like <see cref="Key"/>) is used when the key has never been set.</summary>
+public sealed class CollectionGetNode : WorkflowNode
+{
+    public override string Type => "collectionGet";
+    public string Key { get; set; } = "";
+    public string DefaultValue { get; set; } = "";
+    public string ResultVariable { get; set; } = "collectionResult";
+}
+
+/// <summary>Writes one key to the agent's persistent collection (phase 9). Both <see cref="Key"/>
+/// and <see cref="Value"/> are template-expanded.</summary>
+public sealed class CollectionSetNode : WorkflowNode
+{
+    public override string Type => "collectionSet";
+    public string Key { get; set; } = "";
+    public string Value { get; set; } = "{input}";
+}
+
 /// <summary>Calls a registered IIntegrator by name (phase 4) — the extension point for custom
 /// integrations (GitLab, Jira, ...). Config values support {variables.x}/{input} placeholders,
 /// expanded before being handed to the integrator — same rigor as DatabaseQueryNode.Parameters.

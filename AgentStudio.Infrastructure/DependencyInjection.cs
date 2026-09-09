@@ -51,6 +51,7 @@ public static class DependencyInjection
         services.Configure<List<DatabaseConnectionConfig>>(config.GetSection("DatabaseConnections"));
         services.AddSingleton<IDatabaseConnectionProvider, DatabaseConnectionProvider>();
         services.AddTransient<IDatabaseQueryExecutor, NpgsqlDatabaseQueryExecutor>();
+        services.AddScoped<IAgentCollectionStore, EfAgentCollectionStore>();
         services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
         services.Configure<GitLabIntegratorOptions>(config.GetSection("Integrators:GitLab"));
         services.AddTransient<IIntegrator, GitLabCreateIssueIntegrator>();

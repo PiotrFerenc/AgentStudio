@@ -186,7 +186,7 @@
     public WorkflowNodeDto? SelectedNode { get; private set; }
     private WorkflowEdgeDto? _selectedEdge;
 
-    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "jsonParse", "expression", "integrator", "parallel", "join", "end" };
+    private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "jsonParse", "expression", "collectionGet", "collectionSet", "integrator", "parallel", "join", "end" };
     private const double NodeW = 140, NodeH = 56, DragThreshold = 4;
 
     private ElementReference _canvasRef;
@@ -451,6 +451,8 @@
             case "databaseQuery": node.Props["connectionName"] = ""; node.Props["query"] = ""; node.Props["timeoutSeconds"] = 30; node.Props["resultVariable"] = "dbResult"; break;
             case "jsonParse": node.Props["input"] = "{input}"; node.Props["path"] = ""; node.Props["resultVariable"] = "jsonResult"; break;
             case "expression": node.Props["formula"] = ""; node.Props["resultVariable"] = "result"; break;
+            case "collectionGet": node.Props["key"] = ""; node.Props["defaultValue"] = ""; node.Props["resultVariable"] = "collectionResult"; break;
+            case "collectionSet": node.Props["key"] = ""; node.Props["value"] = "{input}"; break;
             case "integrator": node.Props["integratorName"] = ""; node.Props["resultVariable"] = "integratorResult"; break;
             case "end": node.Props["outputTemplate"] = ""; break;
         }

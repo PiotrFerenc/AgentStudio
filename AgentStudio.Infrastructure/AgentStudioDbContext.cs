@@ -19,6 +19,7 @@ public sealed class AgentStudioDbContext : DbContext
     public DbSet<ConversationState> Conversations => Set<ConversationState>();
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
+    public DbSet<AgentCollectionEntry> AgentCollectionEntries => Set<AgentCollectionEntry>();
 
     /// <summary>
     /// Structural equality/clone for a jsonb-converted collection property. Required whenever an
@@ -115,6 +116,13 @@ public sealed class AgentStudioDbContext : DbContext
             e.HasIndex(c => c.DocumentId);
             e.HasIndex(c => c.AgentId);
             e.Property(c => c.Embedding).HasConversion(embeddingConverter, JsonValueComparer<List<float>>()).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<AgentCollectionEntry>(e =>
+        {
+            e.HasKey(c => new { c.AgentId, c.Key });
+            e.Property(c => c.Key).HasMaxLength(200);
+            e.HasOne<Agent>().WithMany().HasForeignKey(c => c.AgentId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

@@ -1406,3 +1406,83 @@ czegoś co tak naprawdę jest jednym wyrażeniem.
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 9
+
+## 1. Cel fazy 9
+
+Kolejna z listy inspirowanej Copilot/Power Apps (pozycja #2 — "Kolekcje trwałe per agent"):
+mały magazyn klucz/wartość przeżywający dłużej niż jedno uruchomienie/konwersację — w
+odróżnieniu od zwykłej zmiennej workflow (`variables.x`), która resetuje się na każdej nowej
+konwersacji.
+
+## 2. Zasady projektowe (ladder)
+
+- **Jeden wiersz na klucz, nie jeden blob jsonb na agenta.** Naturalna implementacja
+  (Dictionary<string,string> na `Agent`, ten sam wzorzec co `ConversationState.Variables`)
+  ma realną wadę: wiele współbieżnych uruchomień tego samego opublikowanego agenta (np. wielu
+  użytkowników czatu jednocześnie) czytających-modyfikujących-zapisujących CAŁY słownik
+  ścigałoby się na `SaveChanges` — ostatni zapis wygrywa, cicho gubiąc wszystkie inne klucze
+  zmienione w międzyczasie przez inne równoległe uruchomienia. Osobna tabela
+  `AgentCollectionEntries` z kluczem złożonym `(AgentId, Key)` usuwa ten problem: równoległe
+  zapisy do RÓŻNYCH kluczy nigdy się nie ścigają (osobne wiersze), a ten sam klucz nadal ma
+  tylko zwykłą semantykę "ostatni zapis wygrywa" na poziomie jednego wiersza — nie całej
+  kolekcji.
+- **Dwa węzły (`collectionGet`/`collectionSet`), nie jeden z polem Operation.** Ten sam wybór
+  co istniejący `VariableNode` (tylko "set") — osobny typ na czasownik jest już utrwaloną
+  konwencją w tym projekcie (`DatabaseQueryNode`, `HttpNode` itd. też są jednym czasownikiem),
+  nie warto tu wprowadzać nowego wzorca "jeden node + enum operacji".
+- **`Key`/`Value`/`DefaultValue` template'owane zwykłym `ExpandTemplate`**, w przeciwieństwie
+  do `ExpressionNode` (gdzie placeholdery muszą być atomowymi tokenami z innego powodu —
+  bezpieczeństwo składni formuły). Tu nie ma gramatyki do rozjechania, więc zwykła substytucja
+  tekstowa (jak `HttpNode.Url`/`DatabaseQueryNode.Query` po ekspansji) jest wystarczająca i
+  spójna z resztą projektu.
+- **Pusty klucz po ekspansji to błąd, nie cichy zapis pod `""`.** Ten sam fail-clearly
+  kontrakt co reszta węzłów — zapis pod niezamierzenie pustym kluczem (np. literówka w nazwie
+  zmiennej użytej w `Key`) byłby cichym błędem trudnym do zdiagnozowania później.
+- **Case w `WorkflowNodeConverter` dopisany od razu**, jak w fazach 4/6/8.
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Models.cs`: `AgentCollectionEntry { AgentId, Key, Value, UpdatedAt }`.
+- `AgentStudio.Domain/Agent.cs`: `CollectionGetNode { Key, DefaultValue, ResultVariable }`,
+  `CollectionSetNode { Key, Value }`.
+- `AgentStudio.Domain/AgentStudioJson.cs`: case `"collectionGet"`/`"collectionSet"`.
+- `AgentStudio.Application/Interfaces.cs`: `IAgentCollectionStore { GetAsync, SetAsync,
+  ListAsync, DeleteAsync }`.
+- `AgentStudio.Infrastructure/AgentCollectionStore.cs` (nowy plik): `EfAgentCollectionStore`
+  — find-or-add upsert.
+- `AgentStudio.Infrastructure/AgentStudioDbContext.cs`: `DbSet<AgentCollectionEntry>`,
+  klucz złożony `(AgentId, Key)`, FK do `Agents` z `OnDelete: Cascade`.
+- Migracja EF `AddAgentCollectionEntries` (tabela `AgentCollectionEntries`) — zastosowana na
+  dev Postgres.
+- `AgentStudio.Infrastructure/DependencyInjection.cs`: `AddScoped<IAgentCollectionStore,
+  EfAgentCollectionStore>()`.
+- `AgentStudio.Application/WorkflowRunner.cs`: konstruktor zyskuje `IAgentCollectionStore`
+  (nowa zależność, jak `_databaseQuery`). Case `CollectionGetNode`/`CollectionSetNode` —
+  standardowy try/catch/`FailStep`/rethrow, pusty klucz po ekspansji rzuca od razu.
+- `AgentStudio.Contracts/Dtos.cs` (`GraphMapper`): case `"collectionGet"`/`"collectionSet"`.
+- Studio UI: oba typy w palecie `GraphEditor`, edytory w `NodePropertiesEditor` (Key/Default/
+  Result variable dla Get; Key/Value dla Set). Panel "Test this node" (faza 6) działa na nich
+  automatycznie i **naprawdę zapisuje/czyta** ze wspólnej kolekcji agenta — udokumentowane
+  jako zamierzone (ten sam status co HTTP/DB/LLM w debug panelu).
+
+## 4. Testy ✅
+
+- `WorkflowTests.cs`: `CollectionSet_then_get_survives_across_separate_conversations`
+  (dwa CAŁKOWICIE osobne `RunAsync`, dwie różne `ConversationState`, jeden współdzielony
+  `IAgentCollectionStore` — dowód że trwałość nie jest przypadkiem trwałości samej rozmowy),
+  `CollectionGet_uses_default_value_when_key_was_never_set`,
+  `CollectionSet_two_different_agents_never_see_each_others_keys` (izolacja po `AgentId`),
+  `CollectionSet_empty_key_fails_clearly_instead_of_hanging` (regresja na deadlock).
+- 218/218 testów zielonych.
+- Zweryfikowane end-to-end na żywym serwerze przez REST, **z prawdziwym Postgresem**: agent
+  z v1 (`collectionSet key="greeting" value="{input}"`) uruchomiony w konwersacji 1 z
+  `input="hello from run 1"`; nowy draft z `collectionGet` opublikowany jako v2; v2 uruchomiony
+  w **zupełnie nowej** konwersacji zwrócił `"hello from run 1"` — trwałość ponad runem,
+  konwersacją I wersją agenta jednocześnie. Usunięcie agenta po teście potwierdziło kaskadowe
+  czyszczenie wpisów kolekcji (brak błędu FK).
+
+## 5. Status
+
+✅ Zrealizowane.

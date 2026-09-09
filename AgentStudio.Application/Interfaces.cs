@@ -121,6 +121,18 @@ public interface IDatabaseQueryExecutor
     Task<string> ExecuteAsync(DatabaseQueryNode node, IReadOnlyDictionary<string, string> variables, CancellationToken ct = default);
 }
 
+/// <summary>An agent's persistent key/value collection (phase 9) — survives across runs and
+/// conversations, backing <c>collectionGet</c>/<c>collectionSet</c>. One row per key (see
+/// <see cref="AgentCollectionEntry"/>), not a single blob, so concurrent writes to different
+/// keys never clobber each other.</summary>
+public interface IAgentCollectionStore
+{
+    Task<string?> GetAsync(Guid agentId, string key, CancellationToken ct = default);
+    Task SetAsync(Guid agentId, string key, string value, CancellationToken ct = default);
+    Task<List<AgentCollectionEntry>> ListAsync(Guid agentId, CancellationToken ct = default);
+    Task DeleteAsync(Guid agentId, string key, CancellationToken ct = default);
+}
+
 /// <summary>Aggregates execution history (phase 3, analytics) — pure LINQ over the existing
 /// ExecutionLog table, no separate tracking mechanism.</summary>
 public interface IAnalyticsRepository

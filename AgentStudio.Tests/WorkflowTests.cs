@@ -242,6 +242,31 @@ public class WorkflowRunnerTests
             Task.FromResult("[]");
     }
 
+    private sealed class FakeAgentCollectionStore : IAgentCollectionStore
+    {
+        private readonly Dictionary<(Guid, string), string> _store = new();
+
+        public Task<string?> GetAsync(Guid agentId, string key, CancellationToken ct = default) =>
+            Task.FromResult(_store.TryGetValue((agentId, key), out var v) ? v : null);
+
+        public Task SetAsync(Guid agentId, string key, string value, CancellationToken ct = default)
+        {
+            _store[(agentId, key)] = value;
+            return Task.CompletedTask;
+        }
+
+        public Task<List<AgentCollectionEntry>> ListAsync(Guid agentId, CancellationToken ct = default) =>
+            Task.FromResult(_store.Where(kv => kv.Key.Item1 == agentId)
+                .Select(kv => new AgentCollectionEntry { AgentId = agentId, Key = kv.Key.Item2, Value = kv.Value })
+                .ToList());
+
+        public Task DeleteAsync(Guid agentId, string key, CancellationToken ct = default)
+        {
+            _store.Remove((agentId, key));
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FakeLogWriter : IExecutionLogWriter
     {
         public ExecutionLog Start(string conversationId, Guid agentId, int agentVersion) =>
@@ -293,7 +318,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "p" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "p", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -316,7 +341,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "j" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "j", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -339,7 +364,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "j" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "j", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -358,7 +383,7 @@ public class WorkflowRunnerTests
         graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "hello {variables.city}" });
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -386,7 +411,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "5", SourceNodeId = "mt", TargetNodeId = "et" });
         graph.Edges.Add(new WorkflowEdge { Id = "6", SourceNodeId = "mf", TargetNodeId = "ef" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -406,7 +431,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "h" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "h", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -427,7 +452,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "m" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "m", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         await foreach (var _ in runner.RunAsync(agent, version, provider, conversation, "first")) { }
@@ -458,7 +483,7 @@ public class WorkflowRunnerTests
 
         Assert.Empty(WorkflowValidator.Validate(graph)); // cycles are allowed since phase 2
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -479,7 +504,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "loop" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "loop", TargetNodeId = "loop" }); // self-loop, never exits
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
         version.MaxSteps = 5;
 
@@ -514,7 +539,7 @@ public class WorkflowRunnerTests
 
         Assert.Empty(WorkflowValidator.Validate(graph));
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -543,7 +568,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "5", SourceNodeId = "b", TargetNodeId = "join" });
         graph.Edges.Add(new WorkflowEdge { Id = "6", SourceNodeId = "join", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -570,7 +595,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "5", SourceNodeId = "b", TargetNodeId = "join" });
         graph.Edges.Add(new WorkflowEdge { Id = "6", SourceNodeId = "join", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -590,7 +615,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "search" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "search", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -632,7 +657,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "sub" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "sub", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), agents, providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), agents, providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -665,7 +690,7 @@ public class WorkflowRunnerTests
         var providers = new FakeProviderRepository();
         providers.Add(new ModelProviderConfig { Name = "p", BaseUrl = "http://x" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), agents, providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), agents, providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var conversation = new ConversationState { ConversationId = "c1", AgentId = agentId, AgentVersion = 1 };
 
         var output = "";
@@ -694,7 +719,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "sub" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "sub", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), agents, providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), agents, providers, new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -735,7 +760,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "i" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "i", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), new IIntegrator[] { integrator });
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), new IIntegrator[] { integrator }, new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -757,7 +782,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "i" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "i", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -778,7 +803,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "j" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "j", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, _, provider, _) = Fixture(graph);
         var sample = new Dictionary<string, string> { ["apiResponse"] = """{"user":{"name":"Anna"}}""" };
 
@@ -801,7 +826,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "m" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "m", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, _, provider, _) = Fixture(graph);
 
         var result = await runner.DebugNodeAsync(agent, provider, graph, "v", new Dictionary<string, string>());
@@ -821,7 +846,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "j" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "j", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, _, provider, _) = Fixture(graph);
 
         var result = await runner.DebugNodeAsync(agent, provider, graph, "j", new Dictionary<string, string>());
@@ -844,7 +869,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "start-parallel", TargetNodeId = "join1" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "join1", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, _, provider, _) = Fixture(graph);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.DebugNodeAsync(agent, provider, graph, nodeId, new Dictionary<string, string>()));
@@ -863,7 +888,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "x" });
         graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "x", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -884,7 +909,7 @@ public class WorkflowRunnerTests
         graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "x" });
         graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "x", TargetNodeId = "e" });
 
-        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
         var (agent, version, provider, conversation) = Fixture(graph);
 
         var output = "";
@@ -893,5 +918,102 @@ public class WorkflowRunnerTests
 
         Assert.Contains("[error]", output);
         Assert.Contains("unknown function", output);
+    }
+
+    [Fact]
+    public async Task CollectionSet_then_get_survives_across_separate_conversations()
+    {
+        // The whole point of a collection (vs. a normal variable) is that it outlives a single
+        // run/conversation — this proves it via two completely separate RunAsync calls against
+        // the same shared collection store.
+        var setGraph = new WorkflowGraph();
+        setGraph.Nodes.Add(new StartNode { Id = "s" });
+        setGraph.Nodes.Add(new CollectionSetNode { Id = "cs", Key = "greeting", Value = "{input}" });
+        setGraph.Nodes.Add(new EndNode { Id = "e" });
+        setGraph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "cs" });
+        setGraph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "cs", TargetNodeId = "e" });
+
+        var getGraph = new WorkflowGraph();
+        getGraph.Nodes.Add(new StartNode { Id = "s" });
+        getGraph.Nodes.Add(new CollectionGetNode { Id = "cg", Key = "greeting", ResultVariable = "g" });
+        getGraph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.g}" });
+        getGraph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "cg" });
+        getGraph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "cg", TargetNodeId = "e" });
+
+        var sharedStore = new FakeAgentCollectionStore();
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), sharedStore);
+
+        var (agent, setVersion, provider, firstConversation) = Fixture(setGraph);
+        await foreach (var _ in runner.RunAsync(agent, setVersion, provider, firstConversation, "hello there")) { }
+
+        // A brand new conversation for the same agent — nothing shared except the agent id.
+        var secondConversation = new ConversationState { ConversationId = "c2", AgentId = agent.Id, AgentVersion = 1 };
+        var getVersion = new AgentVersion { AgentId = agent.Id, Version = 1, Graph = getGraph };
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, getVersion, provider, secondConversation, "go"))
+            output += chunk;
+
+        Assert.Equal("hello there", output);
+    }
+
+    [Fact]
+    public async Task CollectionGet_uses_default_value_when_key_was_never_set()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new CollectionGetNode { Id = "cg", Key = "missing", DefaultValue = "fallback", ResultVariable = "g" });
+        graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.g}" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "cg" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "cg", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
+            output += chunk;
+
+        Assert.Equal("fallback", output);
+    }
+
+    [Fact]
+    public async Task CollectionSet_two_different_agents_never_see_each_others_keys()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new CollectionSetNode { Id = "cs", Key = "k", Value = "{input}" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "cs" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "cs", TargetNodeId = "e" });
+
+        var sharedStore = new FakeAgentCollectionStore();
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), sharedStore);
+
+        var (agentA, versionA, provider, convA) = Fixture(graph);
+        await foreach (var _ in runner.RunAsync(agentA, versionA, provider, convA, "from agent A")) { }
+
+        Assert.Null(await sharedStore.GetAsync(Guid.NewGuid(), "k")); // sanity: unrelated agent id has nothing
+        Assert.Equal("from agent A", await sharedStore.GetAsync(agentA.Id, "k"));
+    }
+
+    [Fact]
+    public async Task CollectionSet_empty_key_fails_clearly_instead_of_hanging()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new CollectionSetNode { Id = "cs", Key = "", Value = "x" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "cs" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "cs", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>(), new FakeAgentCollectionStore());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
+            output += chunk;
+
+        Assert.Contains("[error]", output);
+        Assert.Contains("Key is empty", output);
     }
 }

@@ -108,6 +108,19 @@ public static class GraphMapper
                     Formula = Prop(n, "formula"),
                     ResultVariable = Prop(n, "resultVariable", "result")
                 },
+                "collectionGet" => new CollectionGetNode
+                {
+                    Id = n.Id,
+                    Key = Prop(n, "key"),
+                    DefaultValue = Prop(n, "defaultValue"),
+                    ResultVariable = Prop(n, "resultVariable", "collectionResult")
+                },
+                "collectionSet" => new CollectionSetNode
+                {
+                    Id = n.Id,
+                    Key = Prop(n, "key"),
+                    Value = Prop(n, "value", "{input}")
+                },
                 _ => throw new InvalidOperationException($"Unknown node type: {n.Type}")
             };
             node.Label = n.Label;
@@ -157,6 +170,12 @@ public static class GraphMapper
                     break;
                 case ExpressionNode x:
                     n.Props["formula"] = x.Formula; n.Props["resultVariable"] = x.ResultVariable;
+                    break;
+                case CollectionGetNode cg:
+                    n.Props["key"] = cg.Key; n.Props["defaultValue"] = cg.DefaultValue; n.Props["resultVariable"] = cg.ResultVariable;
+                    break;
+                case CollectionSetNode cs:
+                    n.Props["key"] = cs.Key; n.Props["value"] = cs.Value;
                     break;
             }
             dto.Nodes.Add(n);

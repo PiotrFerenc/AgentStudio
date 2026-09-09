@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 214 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 218 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -88,7 +88,7 @@ edycji bezpośrednio w bazie lub podniesienia domyślnej wartości w kodzie.
 
 ## Workflow
 
-Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `integrator`, `parallel`, `join`, `end`.
+Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`, `collectionSet`, `integrator`, `parallel`, `join`, `end`.
 
 - Graf wykonuje się sekwencyjnie od Start, z wyjątkiem regionów `parallel`/`join` (fazy 2):
   ≥2 gałęzie z jednego `ParallelNode` biegną współbieżnie, każda z własną kopią zmiennych,
@@ -169,6 +169,21 @@ zagnieżdżony JSON (dla kolejnego `jsonParse` po nim). Niepoprawny JSON albo ni
 (bez wildcardów/filtrów/slice'ów) — jedna wartość z ustalonego kształtu to cały use case, więc
 ręcznie pisany `JsonPathExtractor` nad `System.Text.Json` wystarcza, bez nowej zależności NuGet.
 
+## Kolekcje trwałe (faza 9)
+
+Węzły `collectionGet`/`collectionSet` czytają/zapisują klucz w trwałej kolekcji **agenta** —
+przeżywa restart aplikacji, koniec konwersacji, a nawet publikację nowej wersji (w
+przeciwieństwie do zwykłej zmiennej workflow, która resetuje się na każdej nowej konwersacji).
+Jedna tabela `AgentCollectionEntries` z kluczem złożonym `(AgentId, Key)` — **nie** jeden jsonb
+blob per agent: gdyby wiele równoległych uruchomień tego samego agenta (np. wielu użytkowników
+czatu) czytało/modyfikowało/zapisywało cały słownik naraz, ostatni zapis wygrywałby i cicho
+gubił wszystkie pozostałe klucze zmienione w międzyczasie. Jeden wiersz na klucz — równoległe
+zapisy do **różnych** kluczy nigdy się nie gubią, tylko normalna semantyka bazy dla tego samego
+klucza. `collectionSet`: `Key`/`Value` template'owane. `collectionGet`: `DefaultValue`
+(też template'owany) używany gdy klucz nigdy nie był ustawiony. Pusty `Key` po expandowaniu
+template'u to czytelny błąd, nie cichy zapis pod pustym kluczem. Kasowanie agenta kasuje
+kaskadowo jego wpisy kolekcji.
+
 ## Formuła (faza 8)
 
 Węzeł `expression` liczy jedną wartość ze wzoru w stylu arkusza kalkulacyjnego — zamiast
@@ -230,7 +245,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 214 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 218 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -265,7 +280,11 @@ dotnet test
 # składni formuły nigdy nie rozjeżdża parsowania, brakująca zmienna → pusty string zamiast
 # wyjątku, dzielenie przez zero/nieznana funkcja/zła liczba argumentów/wartość nie-liczbowa w
 # arytmetyce → czytelny błąd), ExpressionNode przez pełny WorkflowRunner (IF na zmiennej z
-# poprzedniego węzła, błędna formuła kończy się [error] zamiast zawieszenia)
+# poprzedniego węzła, błędna formuła kończy się [error] zamiast zawieszenia), kolekcje trwałe
+# (collectionSet w jednym uruchomieniu/konwersacji odczytany przez collectionGet w zupełnie
+# innym uruchomieniu przez współdzielony store — dowód trwałości ponad runem, nie tylko
+# przez API; domyślna wartość gdy klucz nigdy nie ustawiony; różni agenci nigdy nie widzą
+# nawzajem swoich kluczy; pusty klucz po expandowaniu → czytelny błąd zamiast cichego zapisu)
 ```
 
 ## Wdrożenie (Windows/IIS)

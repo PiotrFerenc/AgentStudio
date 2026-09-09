@@ -125,6 +125,22 @@ else
                 a numeric-looking variable is treated as a number automatically.
             </p>
             break;
+        case "collectionGet":
+            <label>Key</label>
+            <input type="text" @bind="CollectionGetKey" @bind:event="oninput" @bind:after="Changed" placeholder="user-{variables.userId}" />
+            <label>Default value (used when the key was never set)</label>
+            <input type="text" @bind="CollectionGetDefault" @bind:event="oninput" @bind:after="Changed" />
+            <label>Result variable</label>
+            <input type="text" @bind="CollectionGetResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Reads a key from this agent's persistent collection — survives across runs and conversations, unlike a normal variable.</p>
+            break;
+        case "collectionSet":
+            <label>Key</label>
+            <input type="text" @bind="CollectionSetKey" @bind:event="oninput" @bind:after="Changed" placeholder="user-{variables.userId}" />
+            <label>Value</label>
+            <input type="text" @bind="CollectionSetValue" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">Writes a key to this agent's persistent collection. Both fields support {input}/{variables.x}.</p>
+            break;
         case "integrator":
             <label>Integrator</label>
             <select @bind="IntegratorName" @bind:after="Changed">
@@ -287,6 +303,11 @@ else
     private string JsonParseResultVariable { get => Get("resultVariable", "jsonResult"); set => Put("resultVariable", value); }
     private string ExpressionFormula { get => Get("formula"); set => Put("formula", value); }
     private string ExpressionResultVariable { get => Get("resultVariable", "result"); set => Put("resultVariable", value); }
+    private string CollectionGetKey { get => Get("key"); set => Put("key", value); }
+    private string CollectionGetDefault { get => Get("defaultValue"); set => Put("defaultValue", value); }
+    private string CollectionGetResultVariable { get => Get("resultVariable", "collectionResult"); set => Put("resultVariable", value); }
+    private string CollectionSetKey { get => Get("key"); set => Put("key", value); }
+    private string CollectionSetValue { get => Get("value", "{input}"); set => Put("value", value); }
 
     private string DbParametersText
     {

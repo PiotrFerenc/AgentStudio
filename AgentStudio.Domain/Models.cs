@@ -70,6 +70,21 @@ public sealed class ConversationState
     public DateTimeOffset LastActivityAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+/// <summary>One key in an agent's persistent collection (phase 9, PowerApps-inspired
+/// "Collections") — a small key/value store that survives across runs and conversations,
+/// unlike <see cref="ConversationState.Variables"/> which resets every new conversation. One
+/// row per key rather than a single jsonb blob on <see cref="Agent"/>, so concurrent writes to
+/// different keys (e.g. many chat users hitting the same published agent) never race each
+/// other out — a whole-dictionary column would silently lose the loser's write on every
+/// concurrent SaveChanges.</summary>
+public sealed class AgentCollectionEntry
+{
+    public required Guid AgentId { get; set; }
+    public required string Key { get; set; }
+    public string Value { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class ExecutionLog
 {
     public Guid Id { get; set; } = Guid.NewGuid();

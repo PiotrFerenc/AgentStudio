@@ -21,6 +21,7 @@ public sealed class WorkflowRunner
     private readonly IProviderRepository _providers;
     private readonly IDatabaseQueryExecutor _databaseQuery;
     private readonly IEnumerable<IIntegrator> _integrators;
+    private readonly IAgentCollectionStore _collections;
 
     /// <summary>Hard cap on agent-calling-agent nesting (phase 3, SubAgentNode) — the only guard
     /// against a cycle across agents (A calls B calls A...), since that can't be seen by the
@@ -35,7 +36,8 @@ public sealed class WorkflowRunner
         IAgentRepository agents,
         IProviderRepository providers,
         IDatabaseQueryExecutor databaseQuery,
-        IEnumerable<IIntegrator> integrators)
+        IEnumerable<IIntegrator> integrators,
+        IAgentCollectionStore collections)
     {
         _chatClients = chatClients;
         _http = http;
@@ -45,6 +47,7 @@ public sealed class WorkflowRunner
         _providers = providers;
         _databaseQuery = databaseQuery;
         _integrators = integrators;
+        _collections = collections;
     }
 
     public string? LastExecutionId { get; private set; }
@@ -351,6 +354,47 @@ public sealed class WorkflowRunner
                         throw;
                     }
                     current = NextByEdge(graph, expr.Id, branch: null);
+                    break;
+                }
+                case CollectionGetNode cget:
+                {
+                    var step = _logWriter.StartStep(log, cget.Id, cget.Type);
+                    try
+                    {
+                        var key = ExpandTemplate(cget.Key, variables);
+                        if (string.IsNullOrWhiteSpace(key))
+                            throw new InvalidOperationException("collectionGet: Key is empty.");
+                        var stored = await _collections.GetAsync(agent.Id, key, ct);
+                        var value = stored ?? ExpandTemplate(cget.DefaultValue, variables);
+                        variables[cget.ResultVariable] = value;
+                        _logWriter.CompleteStep(step, $"collectionGet {key}: {(stored is null ? "default" : "stored")} value");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logWriter.FailStep(step, ex.Message);
+                        throw;
+                    }
+                    current = NextByEdge(graph, cget.Id, branch: null);
+                    break;
+                }
+                case CollectionSetNode cset:
+                {
+                    var step = _logWriter.StartStep(log, cset.Id, cset.Type);
+                    try
+                    {
+                        var key = ExpandTemplate(cset.Key, variables);
+                        if (string.IsNullOrWhiteSpace(key))
+                            throw new InvalidOperationException("collectionSet: Key is empty.");
+                        var value = ExpandTemplate(cset.Value, variables);
+                        await _collections.SetAsync(agent.Id, key, value, ct);
+                        _logWriter.CompleteStep(step, $"collectionSet {key}: {value.Length} chars");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logWriter.FailStep(step, ex.Message);
+                        throw;
+                    }
+                    current = NextByEdge(graph, cset.Id, branch: null);
                     break;
                 }
                 case IntegratorNode integrator:

@@ -134,9 +134,13 @@ The studio UI and `/api/...` require a logged-in session. The runtime agent endp
 
 ### Workflow node types
 
-`start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `integrator`, `parallel`, `join`, `end`. Placeholders in templates: `{input}`, `{variables.name}`. Condition operators: `Equals`, `NotEquals`, `Contains`, `StartsWith`, `EndsWith`, `>`, `<`, `>=`, `<=`.
+`start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`, `collectionSet`, `integrator`, `parallel`, `join`, `end`. Placeholders in templates: `{input}`, `{variables.name}`. Condition operators: `Equals`, `NotEquals`, `Contains`, `StartsWith`, `EndsWith`, `>`, `<`, `>=`, `<=`.
 
 `jsonParse` extracts one value from a JSON blob by a small dot/bracket path (`data.items[0].name`) — `AgentStudio.Domain/JsonPathExtractor.cs`, a hand-rolled walker over `System.Text.Json` (not a full JSONPath implementation — one value out of a known shape is the whole use case). `Input` is template-expanded, `Path` is not (it's a fixed path into a known response shape, not runtime-controlled). Throws a clear `InvalidOperationException` naming the bad property/index/JSON rather than returning silently empty — same fail-clearly contract as `DatabaseQueryNode`/`HttpNode`.
+
+### Persistent collections (phase 9)
+
+`IAgentCollectionStore` (`AgentCollectionEntry { AgentId, Key, Value, UpdatedAt }`, table `AgentCollectionEntries`, composite PK `(AgentId, Key)`) is a small per-agent key/value store that survives across runs, conversations, and published versions — unlike `ConversationState.Variables`, which resets on every new conversation. One row per key, deliberately not a single jsonb blob on `Agent` — concurrent runs of the same published agent (many chat users) writing to a whole-dictionary column would race on `SaveChanges` and silently drop whichever write lost; one row per key means concurrent writes to *different* keys never clobber each other (same-key concurrent writes still last-write-wins, but that's ordinary row-level DB semantics, not a lost-update-of-everything-else bug). `collectionSet { Key, Value }` and `collectionGet { Key, DefaultValue, ResultVariable }` are both template-expanded on `Key` (and `Value`/`DefaultValue`) via the normal `ExpandTemplate`, unlike `ExpressionNode`'s formula. An empty `Key` after expansion is a clear `InvalidOperationException`, not a silent write under `""`. Cascade-deletes with its owning `Agent` (not that agent deletion exists in the UI today, but the FK is there for when it does).
 
 ### Formula node (phase 8)
 
