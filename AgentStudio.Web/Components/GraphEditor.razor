@@ -105,15 +105,15 @@
         @if (_linkSource.Type == "condition")
         {
             <div class="link-branch-picker">
-                <button @onclick='() => _pendingBranch = "true"' class='@(_pendingBranch == "true" ? "active" : "")'>true</button>
-                <button @onclick='() => _pendingBranch = "false"' class='@(_pendingBranch == "false" ? "active" : "")'>false</button>
+                <button @onclick='() => _pendingBranch = "true"' @onclick:stopPropagation class='@(_pendingBranch == "true" ? "active" : "")'>true</button>
+                <button @onclick='() => _pendingBranch = "false"' @onclick:stopPropagation class='@(_pendingBranch == "false" ? "active" : "")'>false</button>
             </div>
         }
         @if (_linkSource.Type == "approval")
         {
             <div class="link-branch-picker">
-                <button @onclick='() => _pendingBranch = "approved"' class='@(_pendingBranch == "approved" ? "active" : "")'>approved</button>
-                <button @onclick='() => _pendingBranch = "rejected"' class='@(_pendingBranch == "rejected" ? "active" : "")'>rejected</button>
+                <button @onclick='() => _pendingBranch = "approved"' @onclick:stopPropagation class='@(_pendingBranch == "approved" ? "active" : "")'>approved</button>
+                <button @onclick='() => _pendingBranch = "rejected"' @onclick:stopPropagation class='@(_pendingBranch == "rejected" ? "active" : "")'>rejected</button>
             </div>
         }
     }
