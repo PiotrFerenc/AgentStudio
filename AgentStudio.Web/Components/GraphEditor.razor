@@ -13,7 +13,30 @@
         <button class="graph-add-btn" @onclick="ZoomIn">+</button>
         <button class="graph-add-btn" @onclick="ResetView">Reset view</button>
     </span>
+    @if (AvailableComponents is { Count: > 0 })
+    {
+        <span class="graph-component-bar">
+            <select @bind="_insertComponentId" style="max-width:14em">
+                <option value="">-- insert component --</option>
+                @foreach (var (summary, graph) in AvailableComponents)
+                {
+                    <option value="@summary.Id">@summary.Name (@graph.Nodes.Count)</option>
+                }
+            </select>
+            <button class="graph-add-btn" @onclick="InsertComponent" disabled="@string.IsNullOrEmpty(_insertComponentId)">Insert</button>
+            <button class="graph-add-btn danger" @onclick="DeleteComponent" disabled="@string.IsNullOrEmpty(_insertComponentId)" title="Delete this saved component">Delete component</button>
+        </span>
+    }
 </div>
+@if (_componentSelection.Count > 0)
+{
+    <div class="graph-toolbar">
+        <span>@_componentSelection.Count node(s) selected (Ctrl/Cmd+click to add/remove):</span>
+        <input type="text" @bind="_newComponentName" @bind:event="oninput" placeholder="Component name" style="width:12em" />
+        <button class="graph-add-btn" @onclick="SaveComponent" disabled="@string.IsNullOrWhiteSpace(_newComponentName)">Save as component</button>
+        <button class="graph-add-btn" @onclick="ClearComponentSelection">Cancel</button>
+    </div>
+}
 
 <div class="graph-canvas"
      tabindex="0"
@@ -56,13 +79,13 @@
     </svg>
     @foreach (var node in Graph.Nodes)
     {
-        <div class="graph-node @node.Type @(SelectedNode?.Id == node.Id ? "selected" : "")"
+        <div class="graph-node @node.Type @(SelectedNode?.Id == node.Id ? "selected" : "") @(_componentSelection.Contains(node.Id) ? "component-selected" : "")"
              style="left:@(node.X)px;top:@(node.Y)px"
              @onmousedown="e => OnNodeMouseDown(e, node)"
              @onmousedown:stopPropagation
              @onmouseup="e => OnNodeMouseUp(e, node)"
              @onmouseup:stopPropagation
-             @onclick="() => Select(node)"
+             @onclick="e => Select(e, node)"
              @onclick:stopPropagation>
             <div class="node-title">@node.Type</div>
             <div class="node-label">@node.Label</div>
@@ -137,6 +160,8 @@
         box-shadow: 0 1px 2px rgba(22,22,26,.06);
     }
     .graph-node.selected { border-color: #3b5bdb; box-shadow: 0 0 0 3px #edf0fd; }
+    .graph-node.component-selected { outline: 2px dashed #e8590c; outline-offset: 2px; }
+    .graph-component-bar { display: flex; gap: .3rem; align-items: center; margin-left: .5rem; }
     .graph-node.start { border-radius: 999px; padding-left: .9rem; width: auto; min-width: 90px; }
     .graph-node.end { border-color: #16161a; border-bottom-width: 3px; }
     .graph-node.condition { border-style: dashed; }
@@ -182,9 +207,15 @@
 @code {
     [Parameter] public WorkflowGraphDto Graph { get; set; } = new();
     [Parameter] public EventCallback<WorkflowGraphDto> GraphChanged { get; set; }
+    [Parameter] public List<(GraphComponentSummary Summary, WorkflowGraphDto Graph)>? AvailableComponents { get; set; }
+    [Parameter] public EventCallback<(string Name, WorkflowGraphDto Graph)> ComponentSaveRequested { get; set; }
+    [Parameter] public EventCallback<Guid> ComponentDeleteRequested { get; set; }
 
     public WorkflowNodeDto? SelectedNode { get; private set; }
     private WorkflowEdgeDto? _selectedEdge;
+    private readonly HashSet<string> _componentSelection = new();
+    private string _newComponentName = "";
+    private string _insertComponentId = "";
 
     private static readonly string[] NodeTypes = { "prompt", "message", "condition", "http", "variable", "documentSearch", "subAgent", "databaseQuery", "jsonParse", "expression", "collectionGet", "collectionSet", "integrator", "parallel", "join", "end" };
     private const double NodeW = 140, NodeH = 56, DragThreshold = 4;
@@ -273,6 +304,24 @@
     private void ZoomIn() => _zoom = Math.Clamp(_zoom * 1.2, ZoomMin, ZoomMax);
     private void ZoomOut() => _zoom = Math.Clamp(_zoom / 1.2, ZoomMin, ZoomMax);
     private void ResetView() { _zoom = 1; _panX = 0; _panY = 0; }
+
+    /// <summary>Ctrl/Cmd+click toggles component-selection instead of the normal single-select —
+    /// only reachable from a plain node click, never from the mouseup drag-to-connect path
+    /// (which calls the plain overload below directly, where ctrl+click has no meaning).</summary>
+    private void Select(MouseEventArgs e, WorkflowNodeDto node)
+    {
+        if ((e.CtrlKey || e.MetaKey) && _linkSource is null)
+        {
+            if (node.Type != "start")
+            {
+                if (!_componentSelection.Add(node.Id))
+                    _componentSelection.Remove(node.Id);
+                Notify();
+            }
+            return;
+        }
+        Select(node);
+    }
 
     private void Select(WorkflowNodeDto node)
     {
@@ -476,6 +525,52 @@
         Graph.Edges.RemoveAll(e => e.SourceNodeId == SelectedNode.Id || e.TargetNodeId == SelectedNode.Id);
         SelectedNode = null;
         Notify();
+    }
+
+    private void ClearComponentSelection()
+    {
+        _componentSelection.Clear();
+        _newComponentName = "";
+    }
+
+    /// <summary>Bundles the selected nodes plus only the edges where BOTH endpoints are also
+    /// selected (an edge reaching outside the selection wouldn't make sense in a standalone
+    /// fragment) and hands it to the parent for persistence — this component has no direct DB
+    /// access, same separation as GraphChanged for ordinary edits.</summary>
+    private async Task SaveComponent()
+    {
+        if (_componentSelection.Count == 0 || string.IsNullOrWhiteSpace(_newComponentName)) return;
+        var nodes = Graph.Nodes.Where(n => _componentSelection.Contains(n.Id)).ToList();
+        var edges = Graph.Edges.Where(e => _componentSelection.Contains(e.SourceNodeId) && _componentSelection.Contains(e.TargetNodeId)).ToList();
+        await ComponentSaveRequested.InvokeAsync((_newComponentName, new WorkflowGraphDto { Nodes = nodes, Edges = edges }));
+        ClearComponentSelection();
+    }
+
+    /// <summary>Places a clone (see <see cref="GraphComponentInserter"/>) at an offset so
+    /// repeated inserts fan out instead of stacking exactly on top of each other.</summary>
+    private void InsertComponent()
+    {
+        if (AvailableComponents is null || !Guid.TryParse(_insertComponentId, out var id)) return;
+        var entry = AvailableComponents.FirstOrDefault(c => c.Summary.Id == id);
+        if (entry.Graph is null) return;
+
+        var offsetX = 60 + Graph.Nodes.Count * 20;
+        var offsetY = 60 + Graph.Nodes.Count * 20;
+        var (nodes, edges) = GraphComponentInserter.Clone(entry.Graph, type => $"{type}{++_counter}", () => $"e{++_counter}");
+        foreach (var n in nodes) { n.X += offsetX; n.Y += offsetY; }
+
+        Graph.Nodes.AddRange(nodes);
+        Graph.Edges.AddRange(edges);
+
+        _insertComponentId = "";
+        Notify();
+    }
+
+    private async Task DeleteComponent()
+    {
+        if (!Guid.TryParse(_insertComponentId, out var id)) return;
+        await ComponentDeleteRequested.InvokeAsync(id);
+        _insertComponentId = "";
     }
 
     private void Notify() => GraphChanged.InvokeAsync(Graph);

@@ -34,6 +34,22 @@ public sealed class ProviderRepository : IProviderRepository
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
 }
 
+public sealed class GraphComponentRepository : IGraphComponentRepository
+{
+    private readonly AgentStudioDbContext _db;
+    public GraphComponentRepository(AgentStudioDbContext db) => _db = db;
+
+    public async Task<List<GraphComponent>> ListAsync(CancellationToken ct = default) =>
+        await _db.GraphComponents.OrderBy(c => c.Name).ToListAsync(ct);
+
+    public async Task<GraphComponent?> GetAsync(Guid id, CancellationToken ct = default) =>
+        await _db.GraphComponents.FindAsync(new object[] { id }, ct);
+
+    public async Task AddAsync(GraphComponent component, CancellationToken ct = default) => await _db.GraphComponents.AddAsync(component, ct);
+    public Task DeleteAsync(GraphComponent component, CancellationToken ct = default) { _db.GraphComponents.Remove(component); return Task.CompletedTask; }
+    public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
+}
+
 public sealed class UserRepository : IUserRepository
 {
     private readonly AgentStudioDbContext _db;

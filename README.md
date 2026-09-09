@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 218 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 228 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -169,6 +169,22 @@ zagnieżdżony JSON (dla kolejnego `jsonParse` po nim). Niepoprawny JSON albo ni
 (bez wildcardów/filtrów/slice'ów) — jedna wartość z ustalonego kształtu to cały use case, więc
 ręcznie pisany `JsonPathExtractor` nad `System.Text.Json` wystarcza, bez nowej zależności NuGet.
 
+## Komponenty grafu (faza 10)
+
+Edytor grafu wspiera zaznaczanie kilku węzłów (Ctrl/Cmd+klik na węzeł, poza `start`) i
+zapisanie ich jako nazwany, wielokrotnego użytku **komponent** — globalny, nie przypięty do
+jednego agenta. "Insert component" wkleja świeżą kopię (nowe id, pozycja przesunięta o offset)
+do dowolnego agenta, także wielokrotnie do tego samego grafu — bez kolizji id i bez współdzielenia
+zagnieżdżonych słowników (`Parameters`/`Config`/`Headers`) między wklejeniami. To czysty
+copy-paste (jak building block w edytorze tekstu), nie żywe powiązanie — edycja komponentu po
+wklejeniu nie zmienia już wklejonych kopii, i odwrotnie. Zapisywana jest tylko podgrafowa
+struktura (węzły + krawędzie, gdzie OBA końce krawędzi są w zaznaczeniu) — `start`/`end` nie
+mogą wejść w skład komponentu (są strukturalne, unikalne per graf). Logika klonowania:
+`AgentStudio.Contracts/GraphComponentInserter.cs` (czysta funkcja, ten sam wzorzec co
+`GraphDiff`), przechowywanie: tabela `GraphComponents` (`GraphJson` jako opaque blob z
+poziomu `AgentStudio.Domain` — Domain nie zna `WorkflowGraphDto`, deserializacja typowana
+dzieje się w `StudioApiClient`).
+
 ## Kolekcje trwałe (faza 9)
 
 Węzły `collectionGet`/`collectionSet` czytają/zapisują klucz w trwałej kolekcji **agenta** —
@@ -245,7 +261,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 218 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 228 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -284,7 +300,12 @@ dotnet test
 # (collectionSet w jednym uruchomieniu/konwersacji odczytany przez collectionGet w zupełnie
 # innym uruchomieniu przez współdzielony store — dowód trwałości ponad runem, nie tylko
 # przez API; domyślna wartość gdy klucz nigdy nie ustawiony; różni agenci nigdy nie widzą
-# nawzajem swoich kluczy; pusty klucz po expandowaniu → czytelny błąd zamiast cichego zapisu)
+# nawzajem swoich kluczy; pusty klucz po expandowaniu → czytelny błąd zamiast cichego zapisu),
+# GraphComponentInserter (świeże id z generatora, remapowanie krawędzi na nowe id, normalizacja
+# pozycji względem własnego bounding boxa komponentu, deep-copy zagnieżdżonych słowników —
+# dwa sklonowania tego samego komponentu nigdy nie współdzielą stanu, dwa sklonowania nigdy
+# nie kolidują po id, pusty komponent zwraca puste listy), GraphComponentRepository (add+list
+# posortowane po nazwie, get nieistniejącego zwraca null, delete faktycznie usuwa)
 ```
 
 ## Wdrożenie (Windows/IIS)

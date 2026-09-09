@@ -18,6 +18,17 @@ public interface IProviderRepository
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 
+/// <summary>Saved reusable graph fragments (phase 10) — global, not per-agent, since the whole
+/// point is pasting them into any agent's draft.</summary>
+public interface IGraphComponentRepository
+{
+    Task<List<GraphComponent>> ListAsync(CancellationToken ct = default);
+    Task<GraphComponent?> GetAsync(Guid id, CancellationToken ct = default);
+    Task AddAsync(GraphComponent component, CancellationToken ct = default);
+    Task DeleteAsync(GraphComponent component, CancellationToken ct = default);
+    Task SaveChangesAsync(CancellationToken ct = default);
+}
+
 public interface IExecutionLogRepository
 {
     Task AddAsync(ExecutionLog log, CancellationToken ct = default);

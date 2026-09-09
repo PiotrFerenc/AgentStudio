@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddMemoryCache();
         services.AddScoped<IAgentRepository, AgentRepository>();
         services.AddScoped<IProviderRepository, ProviderRepository>();
+        services.AddScoped<IGraphComponentRepository, GraphComponentRepository>();
         services.AddScoped<IExecutionLogRepository, ExecutionLogRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<UserService>();

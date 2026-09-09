@@ -20,6 +20,7 @@ public sealed class AgentStudioDbContext : DbContext
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
     public DbSet<AgentCollectionEntry> AgentCollectionEntries => Set<AgentCollectionEntry>();
+    public DbSet<GraphComponent> GraphComponents => Set<GraphComponent>();
 
     /// <summary>
     /// Structural equality/clone for a jsonb-converted collection property. Required whenever an
@@ -123,6 +124,13 @@ public sealed class AgentStudioDbContext : DbContext
             e.HasKey(c => new { c.AgentId, c.Key });
             e.Property(c => c.Key).HasMaxLength(200);
             e.HasOne<Agent>().WithMany().HasForeignKey(c => c.AgentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GraphComponent>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Name).HasMaxLength(200).IsRequired();
+            e.Property(c => c.GraphJson).HasColumnType("jsonb");
         });
     }
 }

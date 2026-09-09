@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AgentStudio.Application;
 using AgentStudio.Contracts;
 using AgentStudio.Domain;
@@ -18,6 +19,7 @@ public sealed class StudioApiClient
     private readonly IDatabaseConnectionProvider _databaseConnections;
     private readonly IAnalyticsRepository _analytics;
     private readonly IEnumerable<IIntegrator> _integrators;
+    private readonly IGraphComponentRepository _graphComponents;
 
     public StudioApiClient(
         IAgentRepository agents,
@@ -30,7 +32,8 @@ public sealed class StudioApiClient
         IDocumentIndexer documents,
         IDatabaseConnectionProvider databaseConnections,
         IAnalyticsRepository analytics,
-        IEnumerable<IIntegrator> integrators)
+        IEnumerable<IIntegrator> integrators,
+        IGraphComponentRepository graphComponents)
     {
         _agents = agents;
         _providers = providers;
@@ -43,6 +46,7 @@ public sealed class StudioApiClient
         _databaseConnections = databaseConnections;
         _analytics = analytics;
         _integrators = integrators;
+        _graphComponents = graphComponents;
     }
 
     /// <summary>Name+description only — never the IIntegrator instance itself.</summary>
@@ -134,6 +138,39 @@ public sealed class StudioApiClient
     /// <summary>Read-only — connections are defined in appsettings.json ("DatabaseConnections"),
     /// not editable at runtime.</summary>
     public List<DatabaseConnectionConfig> ListDatabaseConnections() => _databaseConnections.List();
+
+    /// <summary>Every saved graph component with its graph already deserialized — the graph
+    /// editor's "Insert component" needs the actual content up front (cloning happens
+    /// synchronously in the editor), not just names, so this fetches both together rather than
+    /// forcing a round trip per insert.</summary>
+    public async Task<List<(GraphComponentSummary Summary, WorkflowGraphDto Graph)>> ListGraphComponentsWithGraphsAsync(CancellationToken ct = default)
+    {
+        var components = await _graphComponents.ListAsync(ct);
+        return components
+            .Select(c => (
+                new GraphComponentSummary(c.Id, c.Name, c.Description, c.CreatedAt),
+                JsonSerializer.Deserialize<WorkflowGraphDto>(c.GraphJson, AgentStudioJson.Options) ?? new WorkflowGraphDto()))
+            .ToList();
+    }
+
+    public async Task SaveGraphComponentAsync(string name, WorkflowGraphDto graph, CancellationToken ct = default)
+    {
+        var component = new GraphComponent
+        {
+            Name = name,
+            GraphJson = JsonSerializer.Serialize(graph, AgentStudioJson.Options)
+        };
+        await _graphComponents.AddAsync(component, ct);
+        await _graphComponents.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteGraphComponentAsync(Guid id, CancellationToken ct = default)
+    {
+        var component = await _graphComponents.GetAsync(id, ct);
+        if (component is null) return;
+        await _graphComponents.DeleteAsync(component, ct);
+        await _graphComponents.SaveChangesAsync(ct);
+    }
 
     /// <summary>Runs one node from the (possibly unsaved) draft graph against sample variables —
     /// the graph editor's "Test node" panel. Uses whatever graph the caller currently has open,

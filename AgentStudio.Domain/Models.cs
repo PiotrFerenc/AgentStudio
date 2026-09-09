@@ -16,6 +16,20 @@ public sealed class ModelProviderConfig
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+/// <summary>A saved, reusable fragment of a workflow graph (phase 10, PowerApps-inspired
+/// "component library") — a named group of nodes+edges the studio's graph editor can paste
+/// into any agent's draft, not tied to the agent it was originally cut from. GraphJson is
+/// opaque here: Domain has no dependency on Contracts.WorkflowGraphDto, so the typed (de)
+/// serialization happens in StudioApiClient (Web), which already references both.</summary>
+public sealed class GraphComponent
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string Name { get; set; }
+    public string Description { get; set; } = "";
+    public string GraphJson { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 /// <summary>An uploaded, indexed source document for RAG (phase 2). Raw bytes live on the local
 /// filesystem at StoragePath; DocumentChunk rows hold the searchable text + embeddings.</summary>
 public sealed class Document

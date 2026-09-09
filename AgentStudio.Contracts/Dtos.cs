@@ -20,6 +20,7 @@ public sealed record ProviderDto(Guid Id, string Name, string BaseUrl, string De
 public sealed record ExecutionLogDto(string ExecutionId, string ConversationId, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Error, List<ExecutionStepDto> Steps);
 public sealed record ExecutionStepDto(string NodeId, string NodeType, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Detail, string? Error);
 public sealed record DocumentDto(Guid Id, string FileName, DateTimeOffset CreatedAt, int ChunkCount);
+public sealed record GraphComponentSummary(Guid Id, string Name, string Description, DateTimeOffset CreatedAt);
 /// <summary>Name+description only — never the IIntegrator instance itself, so a Blazor
 /// component never holds a reference to the executable service.</summary>
 public sealed record IntegratorSummary(string Name, string Description);

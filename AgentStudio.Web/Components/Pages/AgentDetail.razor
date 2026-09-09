@@ -142,7 +142,10 @@ else
         <h2>Workflow Graph</h2>
         <div style="display:flex;gap:1rem;flex-wrap:wrap">
             <div style="flex:2;min-width:480px">
-                <GraphEditor Graph="_graph" GraphChanged="OnGraphChanged" @ref="_editor" />
+                <GraphEditor Graph="_graph" GraphChanged="OnGraphChanged" @ref="_editor"
+                             AvailableComponents="_availableComponents"
+                             ComponentSaveRequested="OnComponentSaveRequested"
+                             ComponentDeleteRequested="OnComponentDeleteRequested" />
             </div>
             <div style="flex:1;min-width:280px">
                 <NodePropertiesEditor SelectedNode="_selectedNode" NodeChanged="OnNodeChanged" AvailableAgents="_allAgents" AvailableConnections="_allConnections" AvailableIntegrators="_allIntegrators" AgentId="Id" Graph="_graph" />
@@ -481,6 +484,7 @@ else
     private List<Agent>? _allAgents;
     private List<DatabaseConnectionConfig>? _allConnections;
     private List<IntegratorSummary>? _allIntegrators;
+    private List<(GraphComponentSummary Summary, WorkflowGraphDto Graph)>? _availableComponents;
     private WorkflowGraphDto _graph = new();
     private WorkflowNodeDto? _selectedNode;
     private GraphEditor? _editor;
@@ -613,6 +617,7 @@ else
         _allAgents = await Api.ListAgentsAsync();
         _allConnections = Api.ListDatabaseConnections();
         _allIntegrators = Api.ListIntegrators();
+        _availableComponents = await Api.ListGraphComponentsWithGraphsAsync();
 
         if (_diffOptions.Count > 1)
         {
@@ -662,6 +667,18 @@ else
     {
         var idx = _graph.Nodes.FindIndex(n => n.Id == node.Id);
         if (idx >= 0) _graph.Nodes[idx] = node;
+    }
+
+    private async Task OnComponentSaveRequested((string Name, WorkflowGraphDto Graph) req)
+    {
+        await Api.SaveGraphComponentAsync(req.Name, req.Graph);
+        _availableComponents = await Api.ListGraphComponentsWithGraphsAsync();
+    }
+
+    private async Task OnComponentDeleteRequested(Guid id)
+    {
+        await Api.DeleteGraphComponentAsync(id);
+        _availableComponents = await Api.ListGraphComponentsWithGraphsAsync();
     }
 
     private async Task SaveAsync()

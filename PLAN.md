@@ -1486,3 +1486,97 @@ konwersacji.
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 10
+
+## 1. Cel fazy 10
+
+Kolejna z listy inspirowanej Copilot/Power Apps (pozycja #4 — "Reużywalne komponenty grafu"):
+zapisz kilka połączonych węzłów jako nazwany, globalny szablon, wklej do dowolnego agenta
+jednym kliknięciem. Odpowiednik component library z Power Apps — dziś kopiuj-wklej między
+grafami nie istnieje w ogóle.
+
+## 2. Zasady projektowe (ladder)
+
+- **Copy-paste, nie live binding.** Oryginalny opis z brainstormu mówił wprost "wklej" — to
+  jednoznacznie kopia, nie referencja. Prawdziwe żywe powiązanie (edycja komponentu propaguje
+  się do wszystkich miejsc użycia) wymagałoby nowego typu węzła "componentRef" i zmiany
+  silnika wykonania (rozwiązywanie zagnieżdżonego podgrafu w runtime) — nieproporcjonalnie
+  większy koszt niż to, o co poproszono. Kopia to też mniejsze ryzyko: usunięcie/zepsucie
+  komponentu nie psuje wstecznie grafów, które go już użyły.
+- **Ctrl/Cmd+klik do multi-select, nie prostokąt zaznaczenia.** Edytor grafu ma dziś tylko
+  pojedynczy wybór (do panelu właściwości). Prawdziwe zaznaczanie prostokątem (drag-select) w
+  ręcznie pisanym SVG canvasie to osobna, spora funkcjonalność UI sama w sobie — ctrl+klik
+  (osobny `HashSet<string>` niezależny od istniejącego `SelectedNode`) daje 90% wartości przy
+  ułamku kosztu, bez dotykania istniejącej logiki pojedynczego zaznaczenia/linkowania/drag.
+- **`start` nie może wejść w skład komponentu** (strukturalny, unikalny per graf — wklejenie
+  drugiego zepsułoby graf docelowy). `end` **może** dziś zostać zaznaczony i zapisany — nie ma
+  twardej blokady, bo `WorkflowValidator` i tak nie ogranicza liczby węzłów End do jednego
+  (sprawdza tylko że przynajmniej jeden istnieje) — dodatkowy End po wklejeniu jest
+  nieszkodliwy, nie błąd walidacji. Udokumentowane jako świadomy brak guardu, nie przeoczenie.
+- **Zapisywana jest tylko krawędź, gdzie OBA końce są w zaznaczeniu.** Krawędź wychodząca poza
+  zaznaczenie nie miałaby sensu w samodzielnym fragmencie wklejanym gdzie indziej — filtr
+  `both endpoints selected` to jedyna sensowna definicja "podgrafu" tutaj.
+- **`GraphJson` jako nieprzezroczysty string w Domain, typowana (de)serializacja w
+  `StudioApiClient`.** Domain nie zależy od Contracts (kierunek zależności projektu), więc nie
+  może znać kształtu `WorkflowGraphDto` — ten sam kompromis co reszta jsonb-kolumn w projekcie
+  (`GraphJson`/`FormFieldsJson` na `AgentVersion`), tylko że tu nie ma nawet computed property
+  w Domain, bo nie ma czym jej otypować bez złamania kierunku zależności.
+- **Klonowanie jako czysta, testowalna funkcja w Contracts** (`GraphComponentInserter`), nie
+  zakopane w `.razor` — ten sam wybór co `GraphDiff`/`DatabaseResultTable` wcześniej w tej
+  sesji. Fresh id z generatora dostarczonego przez wywołującego (nie GUID w samej funkcji) —
+  `GraphEditor` może kontynuować swój istniejący schemat `"{type}{licznik}"`, spójny z
+  `AddNode`. Deep-copy zagnieżdżonych `Dictionary<string,string>` (Parameters/Config/Headers)
+  jest obowiązkowy — bez tego dwa wklejenia tego samego komponentu współdzieliłyby ten sam
+  obiekt słownika, i edycja Parameters w jednym cicho zepsułaby drugi.
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Models.cs`: `GraphComponent { Id, Name, Description, GraphJson,
+  CreatedAt }`.
+- `AgentStudio.Application/Interfaces.cs`: `IGraphComponentRepository { ListAsync, GetAsync,
+  AddAsync, DeleteAsync, SaveChangesAsync }`.
+- `AgentStudio.Infrastructure/Repositories.cs`: `GraphComponentRepository`.
+- `AgentStudio.Infrastructure/AgentStudioDbContext.cs`: `DbSet<GraphComponent>`, `Name`
+  maxlength 200, `GraphJson` jako `jsonb`.
+- Migracja EF `AddGraphComponents` — zastosowana na dev Postgres.
+- `AgentStudio.Infrastructure/DependencyInjection.cs`: rejestracja repozytorium.
+- `AgentStudio.Contracts/Dtos.cs`: `GraphComponentSummary(Id, Name, Description, CreatedAt)`.
+- `AgentStudio.Contracts/GraphComponentInserter.cs` (nowy plik): `Clone(component, newNodeId,
+  newEdgeId)` — czysta funkcja, zwraca sklonowane węzły (znormalizowane do (0,0) względem
+  własnego bounding boxa) i krawędzie (przemapowane na nowe id).
+- `AgentStudio.Web/Services/StudioApiClient.cs`: `ListGraphComponentsWithGraphsAsync` (od razu
+  z zdeserializowanym grafem — edytor potrzebuje treści do sklonowania, nie tylko nazw),
+  `SaveGraphComponentAsync`, `DeleteGraphComponentAsync`.
+- `AgentStudio.Web/Components/GraphEditor.razor`: `_componentSelection` (HashSet, niezależny
+  od `SelectedNode`), Ctrl/Cmd+klik przez nowy overload `Select(MouseEventArgs, WorkflowNodeDto)`
+  (istniejący `Select(WorkflowNodeDto)` bez zmian, wciąż wołany z drag-to-connect). Toolbar:
+  "Save as component" (nazwa + przycisk, widoczne gdy zaznaczenie niepuste) i "Insert
+  component"/"Delete component" (select + przyciski, widoczne gdy `AvailableComponents`
+  niepuste). Nowe `[Parameter]`: `AvailableComponents`, `ComponentSaveRequested`,
+  `ComponentDeleteRequested`.
+- `AgentStudio.Web/Components/Pages/AgentDetail.razor`: ładuje `_availableComponents` przy
+  starcie, handlery `OnComponentSaveRequested`/`OnComponentDeleteRequested` wołające
+  `StudioApiClient` i odświeżające listę.
+
+## 4. Testy ✅
+
+- `GraphComponentInserterTests.cs` (nowy plik, 6 testów): świeże id z generatora, remapowanie
+  końców krawędzi na nowe id, normalizacja pozycji względem bounding boxa komponentu,
+  deep-copy zagnieżdżonego słownika (mutacja jednego klonu nie wpływa na drugi), pusty
+  komponent zwraca puste listy, dwa sklonowania tego samego komponentu nigdy nie kolidują po id.
+- `GraphComponentRepositoryTests.cs` (nowy plik, 4 testy, InMemory EF): add+list posortowane
+  po nazwie, get zwraca zapisany GraphJson, delete faktycznie usuwa, get nieistniejącego id
+  zwraca null.
+- 228/228 testów zielonych.
+- Zweryfikowane end-to-end na żywym Postgresie przez `StudioApiClient` bezpośrednio (scratch
+  console z referencją do `AgentStudio.Web.csproj`, ten sam wzorzec co testy WorkflowRunner w
+  tej sesji): zapisano komponent 2-węzłowy (jsonParse→message) do prawdziwej bazy, odczytano
+  z powrotem, sklonowano dwa razy — świeże id, poprawnie zremapowane krawędzie, pozycje
+  znormalizowane do (0,0)/(50,50), usunięto — zniknął z listy. Dodatkowo strona `/agents/{id}`
+  załadowana na żywym serwerze z prawdziwym zapisanym komponentem w bazie — 200, dropdown
+  "insert component" pokazuje jego nazwę, brak wyjątku w logu serwera.
+
+## 5. Status
+
+✅ Zrealizowane.
