@@ -21,6 +21,7 @@ public sealed class AgentStudioDbContext : DbContext
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
     public DbSet<AgentCollectionEntry> AgentCollectionEntries => Set<AgentCollectionEntry>();
     public DbSet<GraphComponent> GraphComponents => Set<GraphComponent>();
+    public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
 
     /// <summary>
     /// Structural equality/clone for a jsonb-converted collection property. Required whenever an
@@ -57,6 +58,7 @@ public sealed class AgentStudioDbContext : DbContext
             e.Property(a => a.Name).HasMaxLength(200).IsRequired();
             e.Ignore(a => a.Draft);
             e.HasMany(a => a.Versions).WithOne().HasForeignKey(v => v.AgentId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(a => a.EnvironmentVariables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<AgentVersion>(e =>
@@ -131,6 +133,13 @@ public sealed class AgentStudioDbContext : DbContext
             e.HasKey(c => c.Id);
             e.Property(c => c.Name).HasMaxLength(200).IsRequired();
             e.Property(c => c.GraphJson).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<PendingApproval>(e =>
+        {
+            e.HasKey(a => a.Id);
+            e.HasIndex(a => a.Status);
+            e.Property(a => a.Variables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
         });
     }
 }

@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 238 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 254 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -88,7 +88,7 @@ edycji bezpośrednio w bazie lub podniesienia domyślnej wartości w kodzie.
 
 ## Workflow
 
-Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`, `collectionSet`, `integrator`, `parallel`, `join`, `end`.
+Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`, `collectionSet`, `approval`, `integrator`, `parallel`, `join`, `end`.
 
 - Graf wykonuje się sekwencyjnie od Start, z wyjątkiem regionów `parallel`/`join` (fazy 2):
   ≥2 gałęzie z jednego `ParallelNode` biegną współbieżnie, każda z własną kopią zmiennych,
@@ -123,6 +123,29 @@ curl -X POST http://localhost:5251/api/agents/$ID/versions/1/conversations \
 `conversationId` utrzymuje wieloturową rozmowę trwale w Postgresie (faza 2) — bez TTL domyślnie,
 przeżywa restart aplikacji. Opcjonalny job czyszczący stare rozmowy — `ConversationRetention`
 w DEPLOYMENT.md, wyłączony domyślnie.
+
+## Zatwierdzenie przez człowieka (faza 13)
+
+Węzeł `approval` zawiesza wykonanie grafu — dokładnie tak jak dojście do `end` bez dalszych
+krawędzi, nie błąd. Wymaga dwóch wychodzących krawędzi: `approved` i `rejected` (walidator to
+wymusza, ten sam kształt co `true`/`false` przy `condition`). Po dojściu do węzła powstaje wpis
+w bazie (`PendingApproval`: pełny zrzut zmiennych, wiadomość, węzeł) widoczny na stronie
+**`/approvals`** (dowolny zalogowany użytkownik). Approve/Reject kontynuuje graf od odpowiedniej
+gałęzi — ale jako **zupełnie nowe, niezależne wykonanie** (świeża rozmowa z prefiksem `resume-`,
+świeży log wykonania), nie wznowienie tej samej rozmowy — historia wiadomości sprzed zawieszenia
+nie jest odtwarzana. Panel "Test this node" (faza 6) na węźle approval tworzy **prawdziwy** wpis
+oczekujący — udokumentowane wprost, ten sam status co realne wywołania HTTP/DB/LLM w trybie
+debug.
+
+## Zmienne środowiskowe agenta (faza 12)
+
+`Agent.EnvironmentVariables` — nazwane wartości konfiguracyjne przypięte do **agenta**, nie do
+konkretnego węzła grafu, dostępne w dowolnym template jako `{variables.env.NAZWA}`. Panel agenta
+ma pole tekstowe (`nazwa=wartość` per linia). Najniższy priorytet — zwykła zmienna (`{input}`,
+`formValues`, webhook) o tej samej nazwie wygrywa. Mimo nazwy to **nie** mechanizm wielu
+równoległych wdrożeń dev/test/prod (ta aplikacja nie ma czegoś takiego) — to zamiennik
+zaszywania wartości (np. URL) bezpośrednio w węźle: zmiana środowiska to edycja tu, nie edycja
+grafu.
 
 ## Wyzwalacze poza chat/form (faza 11)
 
@@ -292,7 +315,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 238 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 254 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -343,7 +366,13 @@ dotnet test
 # przebiegu i nie aktualizuje LastScheduledRunAt, żeby kolejny poll spróbował od razu),
 # AgentService.UpdateScheduleAsync (zapisuje wszystkie pola, włączenie bez interwału/z
 # interwałem <=0 → czytelny błąd, wyłączenie nie wymaga interwału, brakujący agent → czytelny
-# błąd)
+# błąd), zmienne środowiskowe agenta ({variables.env.x} w pełnym WorkflowRunner i w
+# DebugNodeAsync, formValues/webhook nadpisują tę samą nazwę, UpdateEnvironmentVariablesAsync
+# zastępuje cały zbiór a nie scala, brakujący agent → czytelny błąd), węzeł approval (dojście
+# zawiesza run i tworzy PendingApproval ze zrzutem zmiennych bez uruchomienia żadnej gałęzi,
+# ResumeApprovalAsync approved/rejected trafia w poprawną gałąź z podstawionymi zmiennymi,
+# nieistniejące/już zdecydowane pending approval → czytelny błąd), walidator wymaga krawędzi
+# approved+rejected na węźle approval
 ```
 
 ## Wdrożenie (Windows/IIS)

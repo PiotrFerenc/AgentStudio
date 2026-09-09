@@ -132,6 +132,16 @@ public interface IDatabaseQueryExecutor
     Task<string> ExecuteAsync(DatabaseQueryNode node, IReadOnlyDictionary<string, string> variables, CancellationToken ct = default);
 }
 
+/// <summary>Pending human-in-the-loop approvals (phase 13) — created when a run hits an
+/// ApprovalNode, resolved by <c>WorkflowRunner.ResumeApprovalAsync</c>.</summary>
+public interface IPendingApprovalRepository
+{
+    Task<List<PendingApproval>> ListPendingAsync(CancellationToken ct = default);
+    Task<PendingApproval?> GetAsync(Guid id, CancellationToken ct = default);
+    Task AddAsync(PendingApproval approval, CancellationToken ct = default);
+    Task SaveChangesAsync(CancellationToken ct = default);
+}
+
 /// <summary>An agent's persistent key/value collection (phase 9) — survives across runs and
 /// conversations, backing <c>collectionGet</c>/<c>collectionSet</c>. One row per key (see
 /// <see cref="AgentCollectionEntry"/>), not a single blob, so concurrent writes to different

@@ -34,6 +34,21 @@ public sealed class ProviderRepository : IProviderRepository
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
 }
 
+public sealed class PendingApprovalRepository : IPendingApprovalRepository
+{
+    private readonly AgentStudioDbContext _db;
+    public PendingApprovalRepository(AgentStudioDbContext db) => _db = db;
+
+    public async Task<List<PendingApproval>> ListPendingAsync(CancellationToken ct = default) =>
+        await _db.PendingApprovals.Where(a => a.Status == ApprovalStatus.Pending).OrderBy(a => a.CreatedAt).ToListAsync(ct);
+
+    public async Task<PendingApproval?> GetAsync(Guid id, CancellationToken ct = default) =>
+        await _db.PendingApprovals.FindAsync(new object[] { id }, ct);
+
+    public async Task AddAsync(PendingApproval approval, CancellationToken ct = default) => await _db.PendingApprovals.AddAsync(approval, ct);
+    public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
+}
+
 public sealed class GraphComponentRepository : IGraphComponentRepository
 {
     private readonly AgentStudioDbContext _db;

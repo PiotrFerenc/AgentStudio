@@ -46,6 +46,15 @@ else
                 <span style="margin-left:.5rem;font-size:.8rem">@_scheduleMessage</span>
             }
         </p>
+        <p style="margin-top:.5rem" title="Named config values for this agent, reachable in any template as {variables.env.NAME} — an alternative to hardcoding a value in the graph.">
+            <label style="display:block;margin:0 0 .3rem">Environment variables (one per line: name=value)</label>
+            <textarea @bind="_envVarsText" style="width:100%;max-width:28rem;min-height:4rem;font-family:var(--mono, monospace);font-size:.82rem" placeholder="API_URL=https://example.com"></textarea>
+            <button class="secondary" style="display:block;margin-top:.35rem;padding:.15rem .6rem;font-size:.75rem" @onclick="SaveEnvironmentVariablesAsync">Save environment variables</button>
+            @if (_envVarsMessage is not null)
+            {
+                <span style="margin-left:.5rem;font-size:.8rem">@_envVarsMessage</span>
+            }
+        </p>
         @if (_newApiKey is not null)
         {
             <p style="margin-top:.5rem">
@@ -513,6 +522,8 @@ else
     private int? _scheduleIntervalMinutes;
     private string _scheduleInput = "";
     private string? _scheduleMessage;
+    private string _envVarsText = "";
+    private string? _envVarsMessage;
     private List<FormField> _formFields = new();
     private string _formResultMode = "inline";
     private string? _formResultTarget;
@@ -630,6 +641,7 @@ else
             _scheduleEnabled = Agent.ScheduleEnabled;
             _scheduleIntervalMinutes = Agent.ScheduleIntervalMinutes;
             _scheduleInput = Agent.ScheduleInput;
+            _envVarsText = string.Join("\n", Agent.EnvironmentVariables.Select(kv => $"{kv.Key}={kv.Value}"));
         }
         if (Agent?.Draft is not null)
         {
@@ -709,6 +721,28 @@ else
         catch (Exception ex)
         {
             _scheduleMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveEnvironmentVariablesAsync()
+    {
+        try
+        {
+            var dict = new Dictionary<string, string>();
+            foreach (var line in _envVarsText.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                var idx = trimmed.IndexOf('=');
+                if (idx > 0) dict[trimmed[..idx].Trim()] = trimmed[(idx + 1)..].Trim();
+            }
+            await Api.UpdateEnvironmentVariablesAsync(Id, dict);
+            Agent = await Api.GetAgentAsync(Id);
+            _envVarsMessage = "Saved.";
+        }
+        catch (Exception ex)
+        {
+            _envVarsMessage = ex.Message;
         }
     }
 

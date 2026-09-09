@@ -141,6 +141,16 @@ else
             <input type="text" @bind="CollectionSetValue" @bind:event="oninput" @bind:after="Changed" />
             <p style="color:#868e96;font-size:.8rem">Writes a key to this agent's persistent collection. Both fields support {input}/{variables.x}.</p>
             break;
+        case "approval":
+            <label>Message shown to whoever decides</label>
+            <textarea @bind="ApprovalMessage" @bind:after="Changed" placeholder="Approve refund of {variables.amount} for {variables.customerName}?"></textarea>
+            <label>Result variable (reserved, not yet used downstream)</label>
+            <input type="text" @bind="ApprovalResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">
+                Suspends the run — link its port twice to two different targets, one "approved" one "rejected" (pick the branch in the hint that appears while linking).
+                Someone approves or rejects on the /approvals page; the run continues from there as a new, independent execution (no prior message history).
+            </p>
+            break;
         case "integrator":
             <label>Integrator</label>
             <select @bind="IntegratorName" @bind:after="Changed">
@@ -178,7 +188,7 @@ else
         <label>Sample variables (one per line: name=value — "input" counts as a variable too)</label>
         <textarea @bind="_debugVarsText" placeholder="input=5"></textarea>
         <button @onclick="RunDebugAsync" disabled="@_debugRunning">@(_debugRunning ? "Running…" : "Run test")</button>
-        <p style="color:#868e96;font-size:.8rem">Runs just this node against the graph you're currently editing (unsaved changes included) — nodes that call an LLM, HTTP endpoint or database make a real call. Not saved to /analytics or the execution log.</p>
+        <p style="color:#868e96;font-size:.8rem">Runs just this node against the graph you're currently editing (unsaved changes included) — nodes that call an LLM, HTTP endpoint or database make a real call, and an approval node creates a real pending approval on /approvals. Not saved to /analytics or the execution log (the approval row itself is real, though — resolve or ignore it there).</p>
 
         @if (_debugError is not null)
         {
@@ -308,6 +318,8 @@ else
     private string CollectionGetResultVariable { get => Get("resultVariable", "collectionResult"); set => Put("resultVariable", value); }
     private string CollectionSetKey { get => Get("key"); set => Put("key", value); }
     private string CollectionSetValue { get => Get("value", "{input}"); set => Put("value", value); }
+    private string ApprovalMessage { get => Get("message"); set => Put("message", value); }
+    private string ApprovalResultVariable { get => Get("resultVariable", "approvalResult"); set => Put("resultVariable", value); }
 
     private string DbParametersText
     {

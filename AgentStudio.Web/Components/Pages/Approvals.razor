@@ -1,0 +1,89 @@
+@page "/approvals"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject AgentStudio.Web.Services.StudioApiClient Api
+@using AgentStudio.Contracts
+@using Microsoft.AspNetCore.Components.Authorization
+
+<PageTitle>Approvals</PageTitle>
+
+<div class="panel">
+    <h2>Pending approvals</h2>
+    <p style="color:#868e96;font-size:.85rem">Runs paused at an "approval" node, waiting for a decision. Approving/rejecting continues the run as a new, independent execution — no prior message history is replayed.</p>
+    @if (_pending is null)
+    {
+        <p>Loading...</p>
+    }
+    else if (_pending.Count == 0)
+    {
+        <p class="chat-empty">Nothing pending.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Agent</th><th>Message</th><th>Requested</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var p in _pending)
+                {
+                    <tr>
+                        <td><a href="/agents/@p.AgentId">@p.AgentName</a> <span style="color:#868e96;font-size:.75rem">v@p.AgentVersion</span></td>
+                        <td>@p.Message</td>
+                        <td>@p.CreatedAt.ToLocalTime().ToString("g")</td>
+                        <td>
+                            <button class="secondary" style="padding:.15rem .6rem;font-size:.75rem" disabled="@(_deciding == p.Id)" @onclick="() => DecideAsync(p.Id, approved: true)">Approve</button>
+                            <button class="secondary" style="padding:.15rem .6rem;font-size:.75rem;margin-left:.3rem" disabled="@(_deciding == p.Id)" @onclick="() => DecideAsync(p.Id, approved: false)">Reject</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    @if (_error is not null)
+    {
+        <p class="error-list">@_error</p>
+    }
+    @if (_lastResult is not null)
+    {
+        <p style="margin-top:.75rem;font-size:.85rem"><strong>Resumed run output:</strong> @_lastResult</p>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<PendingApprovalSummary>? _pending;
+    private Guid? _deciding;
+    private string? _error;
+    private string? _lastResult;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _pending = await Api.ListPendingApprovalsAsync();
+
+    private async Task<string> CurrentUsernameAsync()
+    {
+        if (AuthState is null) return "unknown";
+        var state = await AuthState;
+        return state.User.Identity?.Name ?? "unknown";
+    }
+
+    private async Task DecideAsync(Guid id, bool approved)
+    {
+        _deciding = id;
+        _error = null;
+        try
+        {
+            var decidedBy = await CurrentUsernameAsync();
+            _lastResult = await Api.DecideApprovalAsync(id, approved, decidedBy);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _deciding = null;
+        }
+    }
+}

@@ -1671,3 +1671,134 @@ wysyła payload) i harmonogram (agent uruchamia się sam, cyklicznie).
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 12
+
+## 1. Cel fazy 12
+
+Pozycja #8 z listy Copilot/Power Apps: "zmienne środowiskowe per agent — connection name/API
+endpoint jako placeholder rozwiązywany w runtime, zamiast zaszyty w węźle". Ten projekt nie ma
+koncepcji wielu równoległych wdrożeń dev/test/prod (jeden proces, `appsettings.{Environment}
+.json`), więc dostarczona wartość to węższa, faktycznie implementowalna część: nazwane,
+edytowalne z panelu wartości per agent, niezależne od grafu.
+
+## 2. Zasady projektowe (ladder)
+
+- **Zasilenie `variables` dict pod prefiksem `env.`, żadnej zmiany w `ExpandTemplate`.**
+  `[\w.]+` w istniejącym regexie placeholderów już dopuszcza kropkę w nazwie zmiennej —
+  `{variables.env.API_URL}` działa przez already-existing mechanizm, wystarczy wsadzić klucze
+  `agent.EnvironmentVariables` do słownika `variables` pod nazwą `env.<klucz>` na starcie
+  `ExecuteAsync`/`DebugNodeAsync`. Zero nowej składni, zero nowego parsera.
+- **Najniższy priorytet — zasilane pierwsze, przed `input`/`formValues`.** Cokolwiek bardziej
+  specyficznego (odpowiedź formularza, webhook) może użyć tej samej nazwy i wygrać — env vars
+  to *domyślne* wartości, nie stałe niepodważalne.
+- **`Dictionary<string,string>` bezpośrednio na `Agent`, ten sam wzorzec co
+  `ConversationState.Variables`** (konwerter+comparer+jsonb), nie osobna tabela — jeden zestaw
+  nazw per agent, żadnej współbieżności do rozwiązania (w przeciwieństwie do kolekcji z fazy 9,
+  gdzie wiele równoległych runów tego samego agenta faktycznie zapisuje w tę samą strukturę).
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Agent.cs`: `Agent.EnvironmentVariables`.
+- `AgentStudio.Infrastructure/AgentStudioDbContext.cs`: konwersja jak `ConversationState
+  .Variables` (reużyty ten sam `variablesConverter`).
+- Migracja `AddAgentEnvironmentVariables` — **`defaultValue` poprawiony na `"{}"`** (nie `""`)
+  przed zastosowaniem — ten sam gotcha co przy `FormFieldsJson` w fazie 3, tym razem złapany
+  od razu, przed uruchomieniem na danych.
+- `AgentStudio.Application/AgentService.cs`: `UpdateEnvironmentVariablesAsync` — zastępuje
+  cały zbiór (nie scala).
+- `AgentStudio.Application/WorkflowRunner.cs`: `ExecuteAsync`/`DebugNodeAsync` zasilają
+  `variables["env.<klucz>"]` przed `input`/`formValues`/`sampleVariables`.
+- `AgentStudio.Web/Components/Pages/AgentDetail.razor`: panel "Environment variables"
+  (textarea `nazwa=wartość`, parse na blur — ten sam bezpieczny wzorzec co Parameters/Config).
+
+## 4. Testy ✅
+
+- `WorkflowTests.cs`: env var czytelna jako `{variables.env.NAME}`, `formValues` nadpisuje tę
+  samą nazwę, `DebugNodeAsync` też widzi env vars agenta.
+- `AgentServiceEnvironmentVariablesTests.cs` (3 testy): zapis pełnego zestawu, zastąpienie
+  całościowe (nie scalanie), brakujący agent → czytelny błąd.
+- 247/247 (w tym momencie) testów zielonych.
+- Zweryfikowane end-to-end na żywym Postgresie przez pełny REST cykl: `{variables.env.API_URL}
+  for tenant {variables.env.TENANT}` poprawnie podstawione z wartości zapisanych bezpośrednio
+  w bazie.
+
+## 5. Status
+
+✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 13
+
+## 1. Cel fazy 13
+
+Pozycja #7 z listy: człowiek w pętli. Graf zatrzymuje się na decyzji, ktoś zatwierdza albo
+odrzuca na osobnej stronie, wykonanie kontynuuje się od odpowiedniej gałęzi.
+
+## 2. Zasady projektowe (ladder)
+
+- **Zawieszenie = zwykłe zakończenie segmentu (`current = null`), nie wyjątek/błąd.** Dokładnie
+  ten sam mechanizm co dojście do `EndNode` bez dalszej krawędzi — `RunSegmentAsync` już to
+  obsługuje bez zmian. Nowość to tylko to, co się dzieje PRZED zatrzymaniem: zapis
+  `PendingApproval`.
+- **Wznowienie to NOWE, niezależne wykonanie — nie replay tej samej rozmowy.** Odtwarzanie
+  pełnej historii wiadomości (kto do kogo, w jakiej kolejności) wymagałoby dużo więcej stanu do
+  serializowania i budzi pytania o spójność (co jeśli graf się zmienił między zawieszeniem a
+  decyzją?). Zrzut samych zmiennych + punkt wznowienia (id węzła + branch) to najmniejsza
+  rzecz, która daje realną wartość: kontynuacja z tymi samymi danymi, świeży log, świeża
+  rozmowa (prefiks `resume-`, ten sam wzorzec co `form-`/`webhook-`/`schedule-`).
+  Ograniczenie udokumentowane wprost (PromptNode po wznowieniu nie widzi wcześniejszych tur).
+- **Dwie krawędzie (`approved`/`rejected`), ten sam kształt co `condition`.** Zero nowego
+  wzorca w edytorze/walidatorze — branch picker, kolory krawędzi, wymóg obu krawędzi w
+  `WorkflowValidator` to niemal kopiuj-wklej istniejącej logiki dla `ConditionNode`.
+- **Log wznowienia JEST persystowany (`CompleteAsync` wywołane)** — w przeciwieństwie do
+  `DebugNodeAsync`, które świadomie nigdy go nie zapisuje. To rozróżnienie: debug to test,
+  wznowienie to prawdziwa kontynuacja prawdziwego runu, ma się pojawić w logu wykonań agenta.
+- **Debugowanie węzła approval tworzy prawdziwy wpis** — ta sama filozofia co HTTP/DB/LLM w
+  panelu "Test this node" (faza 6): węzeł robi to, co naprawdę robi, panel tylko izoluje go od
+  reszty grafu. Pomoc w UI mówi o tym wprost, żeby nikogo nie zaskoczyło.
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Agent.cs`: `ApprovalNode { Message, ResultVariable }`.
+- `AgentStudio.Domain/Models.cs`: `ApprovalStatus` enum, `PendingApproval { AgentId,
+  AgentVersion, NodeId, Message, Variables, Status, CreatedAt, DecidedAt, DecidedBy }`.
+- `AgentStudio.Domain/AgentStudioJson.cs`: case `"approval"`.
+- `AgentStudio.Domain/WorkflowValidator.cs`: `ApprovalNode` wymaga krawędzi `approved` i
+  `rejected`, ten sam kształt co sprawdzenie dla `ConditionNode`.
+- `AgentStudio.Application/Interfaces.cs`: `IPendingApprovalRepository`.
+- `AgentStudio.Infrastructure/Repositories.cs` + `AgentStudioDbContext.cs`: implementacja +
+  mapowanie (`Variables` jako jsonb, indeks na `Status`).
+- Migracja `AddPendingApprovals` — nowa tabela, zero istniejących wierszy więc brak gotchy z
+  `defaultValue`.
+- `AgentStudio.Application/WorkflowRunner.cs`: konstruktor zyskuje `IPendingApprovalRepository`;
+  case `ApprovalNode` — zapis + emit `[awaiting approval] {message}` + `current = null`;
+  nowa publiczna `ResumeApprovalAsync(id, approved, decidedBy)`.
+- `AgentStudio.Contracts/Dtos.cs`: case `"approval"` w `GraphMapper`, `PendingApprovalSummary`.
+- `AgentStudio.Web/Services/StudioApiClient.cs`: `ListPendingApprovalsAsync` (dołącza nazwę
+  agenta), `DecideApprovalAsync`.
+- `AgentStudio.Web/Components/Pages/Approvals.razor` (nowa strona `/approvals`,
+  `[Authorize]` — nie tylko Admin) + link w nawigacji (`MainLayout.razor`).
+- Studio UI: `approval` w palecie `GraphEditor` (branch picker approved/rejected, kolory
+  krawędzi zielony/czerwony jak condition), edytor w `NodePropertiesEditor`.
+
+## 4. Testy ✅
+
+- `WorkflowValidatorTests`: approval bez obu krawędzi → błąd, z obiema → przechodzi.
+- `WorkflowTests.cs`: dojście do approval zawiesza run i tworzy pending (zrzut zmiennych,
+  żadna gałąź się nie wykonuje), `ResumeApprovalAsync` approved/rejected trafia w poprawną
+  gałąź z podstawionymi zmiennymi (`"refunded 100"`/`"denied"`), nieistniejące id → czytelny
+  błąd, już zdecydowane → czytelny błąd.
+- `PendingApprovalRepositoryTests.cs` (3 testy, InMemory EF): lista tylko pending, round-trip
+  zrzutu zmiennych, brakujące id zwraca null.
+- 254/254 testów zielonych.
+- Zweryfikowane end-to-end na żywym Postgresie przez pełny REST + `StudioApiClient` cykl:
+  agent z `start → approval → (approved) message "refunded {input}" / (rejected) message
+  "denied" → end`, opublikowany, uruchomiony z `input="$500"` → zawiesił się z dokładnym
+  komunikatem, wiersz `PendingApprovals` z poprawnym zrzutem zmiennych; strona `/approvals`
+  poprawnie wyrenderowała wpis; `DecideApprovalAsync(approved: true)` zwrócił `"refunded
+  $500"`, status w bazie zmienił się na `Approved` z `DecidedBy`/`DecidedAt`, drugi
+  `ExecutionLog` z prefiksem `resume-` pojawił się w bazie.
+
+## 5. Status
+
+✅ Zrealizowane.

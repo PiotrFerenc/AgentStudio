@@ -137,6 +137,16 @@ public sealed class AgentService
         await _agents.SaveChangesAsync(ct);
     }
 
+    /// <summary>Replaces the agent's named config values (phase 12) — wholesale, not merged,
+    /// same "the caller sends the full desired state" contract as UpdateDraftAsync's graph.</summary>
+    public async Task UpdateEnvironmentVariablesAsync(Guid agentId, Dictionary<string, string> variables, CancellationToken ct = default)
+    {
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        agent.EnvironmentVariables = variables;
+        agent.UpdatedAt = DateTimeOffset.UtcNow;
+        await _agents.SaveChangesAsync(ct);
+    }
+
     /// <summary>Marks a published version as Unpublished. Not allowed for drafts.</summary>
     public async Task<AgentVersion> UnpublishAsync(Guid agentId, int version, CancellationToken ct = default)
     {

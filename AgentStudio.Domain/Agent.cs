@@ -29,6 +29,14 @@ public sealed class Agent
     public string ScheduleInput { get; set; } = "";
     public DateTimeOffset? LastScheduledRunAt { get; set; }
 
+    /// <summary>Named config values scoped to the agent, not the graph (phase 12) — reachable in
+    /// any template as <c>{variables.env.NAME}</c> (seeded into the run's variables under an
+    /// "env." prefix, lowest precedence, before formValues/input). Lets a node reference
+    /// <c>{variables.env.API_URL}</c> instead of hardcoding the value, so switching what it
+    /// points to is an edit here, not a graph edit — "environment variables" in the traditional
+    /// sense, not a dev/test/prod multi-deployment pipeline (this app doesn't have one).</summary>
+    public Dictionary<string, string> EnvironmentVariables { get; set; } = new();
+
     /// <summary>Draft is the AgentVersion with Status=Draft/Validated. Not mapped.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public AgentVersion? Draft => Versions.FirstOrDefault(v => v.Status is AgentVersionStatus.Draft or AgentVersionStatus.Validated);
@@ -339,6 +347,21 @@ public sealed class CollectionSetNode : WorkflowNode
     public override string Type => "collectionSet";
     public string Key { get; set; } = "";
     public string Value { get; set; } = "{input}";
+}
+
+/// <summary>Human-in-the-loop pause (phase 13, PowerApps/Power-Automate-inspired "Approvals").
+/// Reaching this node suspends the run — <see cref="WorkflowRunner"/> persists a
+/// <see cref="PendingApproval"/> snapshot and stops, instead of continuing synchronously.
+/// Requires exactly two outgoing edges, branch "approved"/"rejected" (same shape as
+/// ConditionNode's true/false), resolved later by <c>WorkflowRunner.ResumeApprovalAsync</c>
+/// once someone decides on the <c>/approvals</c> page. <see cref="ResultVariable"/> isn't used
+/// by the approval node itself (the decision is encoded by which branch resumes), but is
+/// reserved for a future "write the decision to a variable too" without a shape change.</summary>
+public sealed class ApprovalNode : WorkflowNode
+{
+    public override string Type => "approval";
+    public string Message { get; set; } = "";
+    public string ResultVariable { get; set; } = "approvalResult";
 }
 
 /// <summary>Calls a registered IIntegrator by name (phase 4) — the extension point for custom

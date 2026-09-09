@@ -20,6 +20,7 @@ public sealed class StudioApiClient
     private readonly IAnalyticsRepository _analytics;
     private readonly IEnumerable<IIntegrator> _integrators;
     private readonly IGraphComponentRepository _graphComponents;
+    private readonly IPendingApprovalRepository _approvals;
 
     public StudioApiClient(
         IAgentRepository agents,
@@ -33,7 +34,8 @@ public sealed class StudioApiClient
         IDatabaseConnectionProvider databaseConnections,
         IAnalyticsRepository analytics,
         IEnumerable<IIntegrator> integrators,
-        IGraphComponentRepository graphComponents)
+        IGraphComponentRepository graphComponents,
+        IPendingApprovalRepository approvals)
     {
         _agents = agents;
         _providers = providers;
@@ -47,6 +49,7 @@ public sealed class StudioApiClient
         _analytics = analytics;
         _integrators = integrators;
         _graphComponents = graphComponents;
+        _approvals = approvals;
     }
 
     /// <summary>Name+description only — never the IIntegrator instance itself.</summary>
@@ -86,6 +89,9 @@ public sealed class StudioApiClient
 
     public Task UpdateScheduleAsync(Guid agentId, bool enabled, int? intervalMinutes, string input, CancellationToken ct = default) =>
         _agentService.UpdateScheduleAsync(agentId, enabled, intervalMinutes, input, ct);
+
+    public Task UpdateEnvironmentVariablesAsync(Guid agentId, Dictionary<string, string> variables, CancellationToken ct = default) =>
+        _agentService.UpdateEnvironmentVariablesAsync(agentId, variables, ct);
 
     public Task<AgentVersion> UnpublishAsync(Guid agentId, int version, CancellationToken ct = default) =>
         _agentService.UnpublishAsync(agentId, version, ct);
@@ -174,6 +180,24 @@ public sealed class StudioApiClient
         await _graphComponents.DeleteAsync(component, ct);
         await _graphComponents.SaveChangesAsync(ct);
     }
+
+    public async Task<List<PendingApprovalSummary>> ListPendingApprovalsAsync(CancellationToken ct = default)
+    {
+        var pending = await _approvals.ListPendingAsync(ct);
+        var summaries = new List<PendingApprovalSummary>();
+        foreach (var p in pending)
+        {
+            var agent = await _agents.GetAsync(p.AgentId, ct);
+            summaries.Add(new PendingApprovalSummary(p.Id, p.AgentId, agent?.Name ?? "(deleted agent)", p.AgentVersion, p.NodeId, p.Message, p.CreatedAt));
+        }
+        return summaries;
+    }
+
+    /// <summary>Resolves a pending approval and returns whatever the resumed run emitted — the
+    /// approver isn't the original requester, but seeing the outcome right after deciding is
+    /// still useful, so it's surfaced here instead of only in the execution log.</summary>
+    public Task<string> DecideApprovalAsync(Guid id, bool approved, string decidedBy, CancellationToken ct = default) =>
+        _runner.ResumeApprovalAsync(id, approved, decidedBy, ct);
 
     /// <summary>Runs one node from the (possibly unsaved) draft graph against sample variables —
     /// the graph editor's "Test node" panel. Uses whatever graph the caller currently has open,

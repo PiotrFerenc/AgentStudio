@@ -33,6 +33,13 @@ public sealed class WorkflowValidator
                 errors.Add($"Condition node {node.Id} must have both 'true' and 'false' outgoing edges.");
         }
 
+        foreach (var node in graph.Nodes.OfType<ApprovalNode>())
+        {
+            var branches = graph.Edges.Where(e => e.SourceNodeId == node.Id).Select(e => e.Branch).ToList();
+            if (!branches.Contains("approved") || !branches.Contains("rejected"))
+                errors.Add($"Approval node {node.Id} must have both 'approved' and 'rejected' outgoing edges.");
+        }
+
         errors.AddRange(ValidateParallelRegions(graph));
 
         // reachability from start

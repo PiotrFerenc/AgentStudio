@@ -22,6 +22,7 @@ public sealed class WorkflowRunner
     private readonly IDatabaseQueryExecutor _databaseQuery;
     private readonly IEnumerable<IIntegrator> _integrators;
     private readonly IAgentCollectionStore _collections;
+    private readonly IPendingApprovalRepository _approvals;
 
     /// <summary>Hard cap on agent-calling-agent nesting (phase 3, SubAgentNode) — the only guard
     /// against a cycle across agents (A calls B calls A...), since that can't be seen by the
@@ -37,7 +38,8 @@ public sealed class WorkflowRunner
         IProviderRepository providers,
         IDatabaseQueryExecutor databaseQuery,
         IEnumerable<IIntegrator> integrators,
-        IAgentCollectionStore collections)
+        IAgentCollectionStore collections,
+        IPendingApprovalRepository approvals)
     {
         _chatClients = chatClients;
         _http = http;
@@ -48,6 +50,7 @@ public sealed class WorkflowRunner
         _databaseQuery = databaseQuery;
         _integrators = integrators;
         _collections = collections;
+        _approvals = approvals;
     }
 
     public string? LastExecutionId { get; private set; }
@@ -104,7 +107,11 @@ public sealed class WorkflowRunner
         if (node is StartNode or ParallelNode or JoinNode)
             throw new InvalidOperationException($"'{node.Type}' nodes can't be debugged in isolation — run the full graph instead.");
 
-        var variables = new Dictionary<string, string>(sampleVariables);
+        var variables = new Dictionary<string, string>();
+        foreach (var (name, value) in agent.EnvironmentVariables)
+            variables[$"env.{name}"] = value;
+        foreach (var (name, value) in sampleVariables)
+            variables[name] = value;
         var conversation = new ConversationState { ConversationId = $"debug-{Guid.NewGuid():N}", AgentId = agent.Id, AgentVersion = 0 };
         var log = _logWriter.Start(conversation.ConversationId, agent.Id, 0);
         var isolated = new WorkflowGraph();
@@ -121,6 +128,58 @@ public sealed class WorkflowRunner
         {
             return new NodeDebugResult(false, log.Steps.LastOrDefault()?.Detail, buffer.ToString(), variables, ex.Message);
         }
+    }
+
+    /// <summary>Continues a run suspended at an ApprovalNode (phase 13) — resolves the node
+    /// right after whichever branch ("approved"/"rejected") matches <paramref name="approved"/>,
+    /// and runs forward from there using the variable snapshot taken when the run paused. This
+    /// is a genuinely independent execution (fresh ConversationState, fresh ExecutionLog), not a
+    /// resumed conversation — no prior message history is replayed. Unlike DebugNodeAsync, the
+    /// resulting log IS persisted (CompleteAsync is called): this is a real continuation of a
+    /// real run, not a test.</summary>
+    public async Task<string> ResumeApprovalAsync(Guid pendingApprovalId, bool approved, string? decidedBy, CancellationToken ct = default)
+    {
+        var pending = await _approvals.GetAsync(pendingApprovalId, ct)
+            ?? throw new InvalidOperationException($"Pending approval '{pendingApprovalId}' not found.");
+        if (pending.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException($"Pending approval '{pendingApprovalId}' was already {pending.Status.ToString().ToLowerInvariant()}.");
+
+        var agent = await _agents.GetAsync(pending.AgentId, ct)
+            ?? throw new InvalidOperationException($"Agent {pending.AgentId} not found.");
+        var version = agent.Versions.FirstOrDefault(v => v.Version == pending.AgentVersion)
+            ?? throw new InvalidOperationException($"Agent '{agent.Name}' version {pending.AgentVersion} not found.");
+        var provider = await _providers.GetByNameAsync(agent.ModelProviderName, ct)
+            ?? throw new InvalidOperationException($"Agent '{agent.Name}': provider '{agent.ModelProviderName}' is not configured.");
+
+        var graph = version.Graph;
+        var next = NextByEdge(graph, pending.NodeId, approved ? "approved" : "rejected");
+
+        pending.Status = approved ? ApprovalStatus.Approved : ApprovalStatus.Rejected;
+        pending.DecidedAt = DateTimeOffset.UtcNow;
+        pending.DecidedBy = decidedBy;
+        await _approvals.SaveChangesAsync(ct);
+
+        var variables = new Dictionary<string, string>(pending.Variables);
+        var conversation = new ConversationState { ConversationId = $"resume-{Guid.NewGuid():N}", AgentId = agent.Id, AgentVersion = version.Version, Variables = variables };
+        var log = _logWriter.Start(conversation.ConversationId, agent.Id, version.Version);
+        var buffer = new StringBuilder();
+        ChunkSink emit = (text, _) => { buffer.Append(text); return Task.CompletedTask; };
+
+        string? error = null;
+        try
+        {
+            await RunSegmentAsync(graph, next, stopAtNodeId: null, variables, conversation, agent, provider, log, new StepCounter(), version.MaxSteps, emit, callDepth: 0, ct);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            await _logWriter.CompleteAsync(log, error, CancellationToken.None);
+        }
+
+        return buffer.ToString();
     }
 
     private async Task ExecuteAsync(
@@ -154,6 +213,11 @@ public sealed class WorkflowRunner
             if (callDepth == 0)
                 LastExecutionId = log.ExecutionId;
             var variables = conversation.Variables;
+            // Lowest precedence, seeded first — agent.EnvironmentVariables are admin-configured
+            // defaults (phase 12), reachable as {variables.env.NAME}; anything more specific
+            // (userMessage/formValues below) is free to use the same name and win.
+            foreach (var (name, value) in agent.EnvironmentVariables)
+                variables[$"env.{name}"] = value;
             variables["input"] = userMessage;
             // formValues applied AFTER userMessage: a form run always passes userMessage=""
             // (RunForm.razor), so a named field must win — including one literally named
@@ -395,6 +459,29 @@ public sealed class WorkflowRunner
                         throw;
                     }
                     current = NextByEdge(graph, cset.Id, branch: null);
+                    break;
+                }
+                case ApprovalNode approval:
+                {
+                    var step = _logWriter.StartStep(log, approval.Id, approval.Type);
+                    var message = ExpandTemplate(approval.Message, variables);
+                    var pending = new PendingApproval
+                    {
+                        AgentId = agent.Id,
+                        AgentVersion = conversation.AgentVersion,
+                        NodeId = approval.Id,
+                        Message = message,
+                        Variables = new Dictionary<string, string>(variables)
+                    };
+                    await _approvals.AddAsync(pending, ct);
+                    await _approvals.SaveChangesAsync(ct);
+                    _logWriter.CompleteStep(step, $"awaiting approval ({pending.Id})");
+                    await emit($"[awaiting approval] {message}", ct);
+                    // Suspends here — the run ends normally (not an error), like reaching an End
+                    // node with no further edges. WorkflowRunner.ResumeApprovalAsync continues
+                    // from whichever branch (approved/rejected) someone picks later, as an
+                    // independent execution — see the type's doc comment for why.
+                    current = null;
                     break;
                 }
                 case IntegratorNode integrator:
