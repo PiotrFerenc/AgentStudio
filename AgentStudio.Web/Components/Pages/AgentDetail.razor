@@ -54,7 +54,7 @@ else
     <div class="panel">
         <p title="Default provider/model for prompt and documentSearch nodes — a node can override this individually.">
             <label style="display:inline;margin:0">Model provider</label>
-            <select style="display:inline-block;margin:0 .3rem" @bind="_providerName">
+            <select style="display:inline-block;margin:0 .3rem" @bind="_providerName" @bind:after="OnProviderSelected">
                 <option value="">-- select --</option>
                 @foreach (var p in _allProviders ?? new())
                 {
@@ -66,7 +66,7 @@ else
             <button class="secondary" style="padding:.15rem .6rem;font-size:.75rem" @onclick="SaveProviderAsync">Save provider</button>
             @if (_providerMessage is not null)
             {
-                <span style="margin-left:.5rem;font-size:.8rem">@_providerMessage</span>
+                <span style="margin-left:.5rem;font-size:.8rem;color:@(_providerMessage == "Saved." ? "#2f9e44" : "#c92a2a")">@_providerMessage</span>
             }
         </p>
         <p>
@@ -842,6 +842,17 @@ else
         {
             _scheduleMessage = ex.Message;
         }
+    }
+
+    /// <summary>Fills in the provider's own DefaultModel when a provider is picked and the
+    /// Model field is still empty — otherwise picking a provider and clicking Save with no
+    /// typed model throws "Provider and model name are required." with no clue why.</summary>
+    private void OnProviderSelected()
+    {
+        if (!string.IsNullOrWhiteSpace(_modelName)) return;
+        var provider = (_allProviders ?? new()).FirstOrDefault(p => p.Name == _providerName);
+        if (provider is not null && !string.IsNullOrWhiteSpace(provider.DefaultModel))
+            _modelName = provider.DefaultModel;
     }
 
     private async Task SaveProviderAsync()
