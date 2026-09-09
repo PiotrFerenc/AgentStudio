@@ -104,9 +104,9 @@ public sealed class StudioApiClient
 
     public Task<List<ModelProviderConfig>> ListProvidersAsync(CancellationToken ct = default) => _providers.ListAsync(ct);
 
-    public async Task AddProviderAsync(string name, string baseUrl, string model, string? apiKey, string? embeddingModel = null, CancellationToken ct = default)
+    public async Task AddProviderAsync(string name, string baseUrl, string model, string? apiKey, string? embeddingModel = null, Dictionary<string, string>? headers = null, CancellationToken ct = default)
     {
-        await _providers.AddAsync(new ModelProviderConfig { Name = name, BaseUrl = baseUrl, DefaultModel = model, ApiKey = apiKey, EmbeddingModel = embeddingModel }, ct);
+        await _providers.AddAsync(new ModelProviderConfig { Name = name, BaseUrl = baseUrl, DefaultModel = model, ApiKey = apiKey, EmbeddingModel = embeddingModel, Headers = headers ?? new() }, ct);
         await _providers.SaveChangesAsync(ct);
     }
 

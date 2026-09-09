@@ -10,15 +10,7 @@ public sealed class OpenAiCompatibleChatClientFactory : IChatClientFactory
 {
     public Application.IChatClient Create(ModelProviderConfig provider, string modelName)
     {
-        var options = new OpenAIClientOptions
-        {
-            Endpoint = new Uri(provider.BaseUrl.TrimEnd('/') + "/v1"),
-            // The SDK's own default (100s) is lower than ModelProviderConfig.TimeoutSeconds'
-            // own default (120s) and cuts off slow-but-legitimate completions with no way to
-            // configure around it — wire the provider's own setting through instead of leaving
-            // it unused.
-            NetworkTimeout = TimeSpan.FromSeconds(Math.Clamp(provider.TimeoutSeconds, 1, 600))
-        };
+        var options = ProviderClientOptions.Build(provider);
         var credential = new ApiKeyCredential(provider.ApiKey ?? "not-needed");
         var client = new OpenAIClient(credential, options);
         var chatClient = client.GetChatClient(modelName).AsIChatClient();

@@ -19,16 +19,45 @@ public sealed class AgentRepository : IAgentRepository
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
 }
 
+/// <summary>Providers can be defined two ways — the database (this repository's own table,
+/// admin-managed via /providers) or appsettings.json's "ModelProviders" array (operational
+/// config, same split as DatabaseConnections). Config wins on a name collision, matching
+/// DatabaseConnectionProvider's "config is the deployment's source of truth" precedent. Config
+/// providers get a deterministic Id (name-derived — see DeterministicGuid) since appsettings has
+/// nowhere to persist a random one, and IsFromConfig=true so the studio UI can hide edit/delete
+/// for rows it can't actually change here.</summary>
 public sealed class ProviderRepository : IProviderRepository
 {
     private readonly AgentStudioDbContext _db;
-    public ProviderRepository(AgentStudioDbContext db) => _db = db;
+    private readonly Microsoft.Extensions.Options.IOptions<List<ModelProviderConfig>> _configProviders;
+
+    public ProviderRepository(AgentStudioDbContext db, Microsoft.Extensions.Options.IOptions<List<ModelProviderConfig>> configProviders)
+    {
+        _db = db;
+        _configProviders = configProviders;
+    }
+
+    private List<ModelProviderConfig> ConfigProviders()
+    {
+        foreach (var p in _configProviders.Value)
+        {
+            p.Id = DeterministicGuid.From($"provider:{p.Name}");
+            p.IsFromConfig = true;
+        }
+        return _configProviders.Value;
+    }
 
     public async Task<ModelProviderConfig?> GetByNameAsync(string name, CancellationToken ct = default) =>
-        await _db.Providers.FirstOrDefaultAsync(p => p.Name == name, ct);
+        ConfigProviders().FirstOrDefault(p => p.Name == name)
+        ?? await _db.Providers.FirstOrDefaultAsync(p => p.Name == name, ct);
 
-    public async Task<List<ModelProviderConfig>> ListAsync(CancellationToken ct = default) =>
-        await _db.Providers.OrderBy(p => p.Name).ToListAsync(ct);
+    public async Task<List<ModelProviderConfig>> ListAsync(CancellationToken ct = default)
+    {
+        var config = ConfigProviders();
+        var configNames = config.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        var fromDb = await _db.Providers.Where(p => !configNames.Contains(p.Name)).ToListAsync(ct);
+        return config.Concat(fromDb).OrderBy(p => p.Name).ToList();
+    }
 
     public async Task AddAsync(ModelProviderConfig provider, CancellationToken ct = default) => await _db.Providers.AddAsync(provider, ct);
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);

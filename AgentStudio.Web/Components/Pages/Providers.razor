@@ -8,7 +8,7 @@
 <div class="panel">
     <h2>Model Providers (OpenAI-compatible)</h2>
     <table>
-        <thead><tr><th>Name</th><th>Base URL</th><th>Default model</th><th>Embedding model</th><th>API key</th></tr></thead>
+        <thead><tr><th>Name</th><th>Base URL</th><th>Default model</th><th>Embedding model</th><th>API key</th><th>Headers</th><th>Source</th></tr></thead>
         <tbody>
             @foreach (var p in _providers ?? new())
             {
@@ -18,6 +18,8 @@
                     <td>@p.DefaultModel</td>
                     <td>@(p.EmbeddingModel ?? "—")</td>
                     <td>@(p.ApiKey is null ? "—" : "set")</td>
+                    <td>@(p.Headers.Count == 0 ? "—" : string.Join(", ", p.Headers.Keys))</td>
+                    <td style="color:#868e96;font-size:.85rem">@(p.IsFromConfig ? "appsettings.json" : "database")</td>
                 </tr>
             }
         </tbody>
@@ -26,6 +28,7 @@
 
 <div class="panel">
     <h2>Add Provider</h2>
+    <p style="color:#868e96;font-size:.85rem">Adds a database-managed provider. Providers can also be defined in appsettings.json under "ModelProviders" (operational config, not editable here) — a config provider with the same name always wins.</p>
     <label>Name</label>
     <input type="text" @bind="_name" placeholder="e.g. ollama-local" />
     <label>Base URL</label>
@@ -36,6 +39,8 @@
     <input type="text" @bind="_embeddingModel" placeholder="e.g. nomic-embed-text" />
     <label>API key (optional)</label>
     <input type="text" @bind="_apiKey" />
+    <label>Custom HTTP headers (optional, one per line: name=value — sent with every request to this provider)</label>
+    <textarea @bind="_headersText" placeholder="X-Gateway-Key=abc123"></textarea>
     <br />
     <button class="primary" @onclick="AddAsync">Add</button>
 </div>
@@ -47,16 +52,27 @@
     private string _model = "";
     private string? _embeddingModel;
     private string? _apiKey;
+    private string _headersText = "";
 
     protected override async Task OnInitializedAsync() => _providers = await Api.ListProvidersAsync();
 
     private async Task AddAsync()
     {
+        var headers = new Dictionary<string, string>();
+        foreach (var line in _headersText.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0) continue;
+            var idx = trimmed.IndexOf('=');
+            if (idx > 0) headers[trimmed[..idx].Trim()] = trimmed[(idx + 1)..].Trim();
+        }
+
         await Api.AddProviderAsync(_name, _baseUrl, _model, string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey,
-            string.IsNullOrWhiteSpace(_embeddingModel) ? null : _embeddingModel);
+            string.IsNullOrWhiteSpace(_embeddingModel) ? null : _embeddingModel, headers);
         _providers = await Api.ListProvidersAsync();
         _name = _baseUrl = _model = "";
         _embeddingModel = null;
         _apiKey = null;
+        _headersText = "";
     }
 }

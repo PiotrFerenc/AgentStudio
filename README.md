@@ -88,7 +88,7 @@ edycji bezpośrednio w bazie lub podniesienia domyślnej wartości w kodzie.
 
 ## Workflow
 
-Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`, `collectionSet`, `approval`, `integrator`, `parallel`, `join`, `end`.
+Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `collectionGet`, `collectionSet`, `integrator`, `parallel`, `join`, `end`.
 
 - Graf wykonuje się sekwencyjnie od Start, z wyjątkiem regionów `parallel`/`join` (fazy 2):
   ≥2 gałęzie z jednego `ParallelNode` biegną współbieżnie, każda z własną kopią zmiennych,
@@ -141,19 +141,6 @@ prawdziwą granicą bezpieczeństwa jest `Program.cs` — każdy mutujący endpo
 /...` (`draft`, `publish`, `regenerate-key`, `unpublish`, `republish`) sprawdza dostęp server-side
 i zwraca `403`, zanim cokolwiek zrobi. Samo ukrycie przycisku w UI nie chroni przed kimś, kto ma
 ważne ciasteczko sesji i strzela bezpośrednio w REST API przez curl.
-
-## Zatwierdzenie przez człowieka (faza 13)
-
-Węzeł `approval` zawiesza wykonanie grafu — dokładnie tak jak dojście do `end` bez dalszych
-krawędzi, nie błąd. Wymaga dwóch wychodzących krawędzi: `approved` i `rejected` (walidator to
-wymusza, ten sam kształt co `true`/`false` przy `condition`). Po dojściu do węzła powstaje wpis
-w bazie (`PendingApproval`: pełny zrzut zmiennych, wiadomość, węzeł) widoczny na stronie
-**`/approvals`** (dowolny zalogowany użytkownik). Approve/Reject kontynuuje graf od odpowiedniej
-gałęzi — ale jako **zupełnie nowe, niezależne wykonanie** (świeża rozmowa z prefiksem `resume-`,
-świeży log wykonania), nie wznowienie tej samej rozmowy — historia wiadomości sprzed zawieszenia
-nie jest odtwarzana. Panel "Test this node" (faza 6) na węźle approval tworzy **prawdziwy** wpis
-oczekujący — udokumentowane wprost, ten sam status co realne wywołania HTTP/DB/LLM w trybie
-debug.
 
 ## Zmienne środowiskowe agenta (faza 12)
 
@@ -386,11 +373,7 @@ dotnet test
 # interwałem <=0 → czytelny błąd, wyłączenie nie wymaga interwału, brakujący agent → czytelny
 # błąd), zmienne środowiskowe agenta ({variables.env.x} w pełnym WorkflowRunner i w
 # DebugNodeAsync, formValues/webhook nadpisują tę samą nazwę, UpdateEnvironmentVariablesAsync
-# zastępuje cały zbiór a nie scala, brakujący agent → czytelny błąd), węzeł approval (dojście
-# zawiesza run i tworzy PendingApproval ze zrzutem zmiennych bez uruchomienia żadnej gałęzi,
-# ResumeApprovalAsync approved/rejected trafia w poprawną gałąź z podstawionymi zmiennymi,
-# nieistniejące/już zdecydowane pending approval → czytelny błąd), walidator wymaga krawędzi
-# approved+rejected na węźle approval, AgentAccess.CanEdit (admin/właściciel/współpracownik
+# zastępuje cały zbiór a nie scala, brakujący agent → czytelny błąd), AgentAccess.CanEdit (admin/właściciel/współpracownik
 # przechodzi, obcy Editor nie, agent bez właściciela i bez współpracowników edytowalny tylko
 # przez admina), AgentService add/remove collaborator (dodanie po nazwie, nieznana nazwa →
 # czytelny błąd, podwójne dodanie idempotentne, usunięcie faktycznie odbiera dostęp),

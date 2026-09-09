@@ -87,6 +87,7 @@ public sealed class AgentStudioDbContext : DbContext
             e.HasIndex(p => p.Name).IsUnique();
             e.Property(p => p.Name).HasMaxLength(200).IsRequired();
             e.Property(p => p.ApiKey).HasConversion(apiKeyConverter);
+            e.Property(p => p.Headers).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<ExecutionLog>(e =>

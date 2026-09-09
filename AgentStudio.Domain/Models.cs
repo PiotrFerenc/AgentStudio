@@ -13,7 +13,20 @@ public sealed class ModelProviderConfig
     /// DocumentSearchNode; leave blank for providers/agents that don't need embeddings.</summary>
     public string? EmbeddingModel { get; set; }
 
+    /// <summary>Extra HTTP headers sent with every request to this provider (e.g. a gateway auth
+    /// header an OpenAI-compatible proxy expects alongside/instead of the bearer ApiKey). Applied
+    /// via a PipelinePolicy in ProviderClientOptions, same call for both chat and embedding
+    /// clients.</summary>
+    public Dictionary<string, string> Headers { get; set; } = new();
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>True when this provider came from appsettings.json ("ModelProviders") rather than
+    /// the database — not persisted (see ProviderRepository), purely a UI/read hint so the studio
+    /// can show where a provider is defined and hide edit/delete for config-sourced rows.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public bool IsFromConfig { get; set; }
 }
 
 /// <summary>A saved, reusable fragment of a workflow graph (phase 10, PowerApps-inspired

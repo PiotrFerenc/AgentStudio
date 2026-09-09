@@ -135,14 +135,14 @@ auth.MapPost("/setup", async (HttpContext http, UserService users, CancellationT
 var api = app.MapGroup("/api").DisableAntiforgery().RequireAuthorization();
 
 api.MapGet("/providers", async (IProviderRepository repo, CancellationToken ct) =>
-    Results.Ok((await repo.ListAsync(ct)).Select(p => new ProviderDto(p.Id, p.Name, p.BaseUrl, p.DefaultModel, p.ApiKey is not null, p.EmbeddingModel))));
+    Results.Ok((await repo.ListAsync(ct)).Select(p => new ProviderDto(p.Id, p.Name, p.BaseUrl, p.DefaultModel, p.ApiKey is not null, p.EmbeddingModel, p.IsFromConfig, p.Headers))));
 
 api.MapPost("/providers", async (CreateProviderRequest req, IProviderRepository repo, CancellationToken ct) =>
 {
-    var provider = new ModelProviderConfig { Name = req.Name, BaseUrl = req.BaseUrl, DefaultModel = req.DefaultModel, ApiKey = req.ApiKey, EmbeddingModel = req.EmbeddingModel };
+    var provider = new ModelProviderConfig { Name = req.Name, BaseUrl = req.BaseUrl, DefaultModel = req.DefaultModel, ApiKey = req.ApiKey, EmbeddingModel = req.EmbeddingModel, Headers = req.Headers ?? new() };
     await repo.AddAsync(provider, ct);
     await repo.SaveChangesAsync(ct);
-    return Results.Created($"/api/providers/{provider.Id}", new ProviderDto(provider.Id, provider.Name, provider.BaseUrl, provider.DefaultModel, provider.ApiKey is not null, provider.EmbeddingModel));
+    return Results.Created($"/api/providers/{provider.Id}", new ProviderDto(provider.Id, provider.Name, provider.BaseUrl, provider.DefaultModel, provider.ApiKey is not null, provider.EmbeddingModel, provider.IsFromConfig, provider.Headers));
 });
 
 api.MapGet("/agents", async (IAgentRepository repo, CancellationToken ct) =>

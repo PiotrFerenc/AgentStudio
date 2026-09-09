@@ -15,8 +15,8 @@ public sealed record AgentVersionDto(int Version, string Status, DateTimeOffset 
 public sealed record ValidationResultDto(bool IsValid, List<string> Errors);
 public sealed record ConversationRequest(string Message, string? ConversationId);
 public sealed record ConversationResponse(string ConversationId, string Reply, string ExecutionId);
-public sealed record CreateProviderRequest(string Name, string BaseUrl, string DefaultModel, string? ApiKey, string? EmbeddingModel = null);
-public sealed record ProviderDto(Guid Id, string Name, string BaseUrl, string DefaultModel, bool HasApiKey, string? EmbeddingModel);
+public sealed record CreateProviderRequest(string Name, string BaseUrl, string DefaultModel, string? ApiKey, string? EmbeddingModel = null, Dictionary<string, string>? Headers = null);
+public sealed record ProviderDto(Guid Id, string Name, string BaseUrl, string DefaultModel, bool HasApiKey, string? EmbeddingModel, bool IsFromConfig, Dictionary<string, string> Headers);
 public sealed record ExecutionLogDto(string ExecutionId, string ConversationId, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Error, List<ExecutionStepDto> Steps);
 public sealed record ExecutionStepDto(string NodeId, string NodeType, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string? Detail, string? Error);
 public sealed record DocumentDto(Guid Id, string FileName, DateTimeOffset CreatedAt, int ChunkCount);
