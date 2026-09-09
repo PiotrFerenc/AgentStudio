@@ -30,6 +30,19 @@ public sealed class UserService
     {
         var user = await _users.GetByUsernameAsync(username, ct);
         if (user is null) return null;
+
+        // A config-sourced account with a plaintext "Password" in appsettings.json has no hash
+        // to verify against — compare directly, using fixed-time comparison so a failed check
+        // doesn't leak how many leading characters matched.
+        if (user.ConfigPlaintextPassword is not null)
+        {
+            var expected = System.Text.Encoding.UTF8.GetBytes(user.ConfigPlaintextPassword);
+            var actual = System.Text.Encoding.UTF8.GetBytes(password);
+            return expected.Length == actual.Length && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expected, actual)
+                ? user
+                : null;
+        }
+
         return _hasher.VerifyHashedPassword(user, user.PasswordHash, password) == PasswordVerificationResult.Failed
             ? null
             : user;
@@ -38,6 +51,8 @@ public sealed class UserService
     public async Task ChangeRoleAsync(Guid userId, UserRole role, CancellationToken ct = default)
     {
         var user = await _users.GetAsync(userId, ct) ?? throw new KeyNotFoundException("User not found.");
+        if (user.IsFromConfig)
+            throw new InvalidOperationException($"'{user.Username}' is defined in appsettings.json — change its role there and restart.");
         if (user.Role == UserRole.Admin && role != UserRole.Admin)
         {
             var admins = (await _users.ListAsync(ct)).Count(u => u.Role == UserRole.Admin);
@@ -51,6 +66,8 @@ public sealed class UserService
     public async Task DeleteAsync(Guid userId, CancellationToken ct = default)
     {
         var user = await _users.GetAsync(userId, ct) ?? throw new KeyNotFoundException("User not found.");
+        if (user.IsFromConfig)
+            throw new InvalidOperationException($"'{user.Username}' is defined in appsettings.json — remove it there and restart.");
         if (user.Role == UserRole.Admin)
         {
             var admins = (await _users.ListAsync(ct)).Count(u => u.Role == UserRole.Admin);

@@ -163,6 +163,33 @@ rewrite; migrating an existing provider's key means updating its `ApiKey` column
 Postgres (with the key already configured, so the app-side encryption logic is available if
 scripted through the app rather than raw SQL).
 
+### Model providers and user accounts in appsettings.json
+
+Both model providers and user accounts can be defined in config instead of the database —
+`"ModelProviders"` (array of `{ Name, BaseUrl, DefaultModel, ApiKey, EmbeddingModel, Headers }`)
+and `"Users"` (array of `{ Username, Password, PasswordHash, Role }`, `Role` one of
+`"Admin"`/`"Editor"`). Both merge with the corresponding database table — a config entry wins on
+a name/username collision — so this is additive, not a replacement for `/providers` or `/users`.
+
+**A `Users` entry's password reaches the file in the clear unless you set `PasswordHash`
+instead of `Password`.** `Password` is a plaintext dev convenience, compared directly at login —
+fine for a local/CI setup, not for anything that goes to a shared repo or a production host.
+For production, hash it the same way the app does (`PasswordHasher<User>` — see
+`AgentStudio.Application/UserService.cs`) and put the hash in `PasswordHash` instead:
+
+```json
+{ "Users": [ { "Username": "ops", "PasswordHash": "AQAAAAIAAYagAAAAE...", "Role": "Admin" } ] }
+```
+
+Either way, treat `appsettings.Production.json` as a secret once it holds real credentials:
+restrict its file permissions (`chmod 600`), keep it out of source control, and prefer
+environment variables (`Users__0__PasswordHash=...`, same `__`-nesting as `Secrets__EncryptionKey`
+above) over a committed file where the deployment pipeline allows it.
+
+A config-defined user's role can't be changed and the account can't be deleted from `/users` —
+edit `appsettings.json` and restart instead. A config-defined provider likewise can't be
+edited/deleted from `/providers`.
+
 ## 3. IIS site (in-process)
 
 1. Install the ASP.NET Core 10 Hosting Bundle, then `net stop was /y && net start w3svc`.

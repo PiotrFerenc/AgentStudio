@@ -79,21 +79,58 @@ public sealed class GraphComponentRepository : IGraphComponentRepository
     public async Task SaveChangesAsync(CancellationToken ct = default) => await _db.SaveChangesAsync(ct);
 }
 
+/// <summary>Users can come from two places — the database (this repository's own table,
+/// admin-managed via /users) or appsettings.json's "Users" array (operational config, same
+/// split as DatabaseConnections/ModelProviders). Config wins on a username collision. Config
+/// accounts get a deterministic Id (DeterministicGuid) since appsettings has nowhere to persist
+/// a random one — Agent.OwnerId/AgentCollaborator.UserId reference user Ids, so this Id needs to
+/// stay stable across restarts for ownership to keep working. Mutating a config account
+/// (AddAsync won't collide since UserService checks GetByUsernameAsync first; role
+/// change/delete) is rejected in UserService, not here — this repository only reads config.</summary>
 public sealed class UserRepository : IUserRepository
 {
     private readonly AgentStudioDbContext _db;
-    public UserRepository(AgentStudioDbContext db) => _db = db;
+    private readonly Microsoft.Extensions.Options.IOptions<List<UserConfig>> _configUsers;
 
-    public Task<User?> GetAsync(Guid id, CancellationToken ct = default) =>
-        _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+    /// <summary>No-config convenience overload — DI always uses the two-arg constructor;
+    /// this one just saves every existing test/callsite from threading through an empty
+    /// IOptions&lt;List&lt;UserConfig&gt;&gt;.</summary>
+    public UserRepository(AgentStudioDbContext db) : this(db, Microsoft.Extensions.Options.Options.Create(new List<UserConfig>())) { }
 
-    public Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default) =>
-        _db.Users.FirstOrDefaultAsync(u => u.Username == username, ct);
+    public UserRepository(AgentStudioDbContext db, Microsoft.Extensions.Options.IOptions<List<UserConfig>> configUsers)
+    {
+        _db = db;
+        _configUsers = configUsers;
+    }
 
-    public Task<List<User>> ListAsync(CancellationToken ct = default) =>
-        _db.Users.OrderBy(u => u.Username).ToListAsync(ct);
+    private List<User> ConfigUsers() => _configUsers.Value.Select(c => new User
+    {
+        Id = DeterministicGuid.From($"user:{c.Username}"),
+        Username = c.Username,
+        Role = c.Role,
+        PasswordHash = c.Password is null ? c.PasswordHash ?? "" : "",
+        ConfigPlaintextPassword = c.Password,
+        IsFromConfig = true
+    }).ToList();
 
-    public Task<bool> AnyAsync(CancellationToken ct = default) => _db.Users.AnyAsync(ct);
+    public async Task<User?> GetAsync(Guid id, CancellationToken ct = default) =>
+        ConfigUsers().FirstOrDefault(u => u.Id == id)
+        ?? await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+
+    public async Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default) =>
+        ConfigUsers().FirstOrDefault(u => u.Username == username)
+        ?? await _db.Users.FirstOrDefaultAsync(u => u.Username == username, ct);
+
+    public async Task<List<User>> ListAsync(CancellationToken ct = default)
+    {
+        var config = ConfigUsers();
+        var configNames = config.Select(u => u.Username).ToHashSet(StringComparer.Ordinal);
+        var fromDb = await _db.Users.Where(u => !configNames.Contains(u.Username)).ToListAsync(ct);
+        return config.Concat(fromDb).OrderBy(u => u.Username).ToList();
+    }
+
+    public Task<bool> AnyAsync(CancellationToken ct = default) =>
+        _configUsers.Value.Count > 0 ? Task.FromResult(true) : _db.Users.AnyAsync(ct);
 
     public async Task AddAsync(User user, CancellationToken ct = default) => await _db.Users.AddAsync(user, ct);
 

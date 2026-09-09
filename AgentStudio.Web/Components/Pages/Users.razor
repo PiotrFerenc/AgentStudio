@@ -15,22 +15,35 @@
     else
     {
         <table>
-            <thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Source</th><th></th></tr></thead>
             <tbody>
                 @foreach (var u in _users)
                 {
                     <tr>
                         <td>@u.Username</td>
                         <td>
-                            <select @bind="RoleFor[u.Id]" @bind:after="() => ChangeRoleAsync(u.Id)">
-                                @foreach (var r in Roles)
-                                {
-                                    <option value="@r">@r</option>
-                                }
-                            </select>
+                            @if (u.IsFromConfig)
+                            {
+                                @u.Role
+                            }
+                            else
+                            {
+                                <select @bind="RoleFor[u.Id]" @bind:after="() => ChangeRoleAsync(u.Id)">
+                                    @foreach (var r in Roles)
+                                    {
+                                        <option value="@r">@r</option>
+                                    }
+                                </select>
+                            }
                         </td>
                         <td>@u.CreatedAt.ToString("yyyy-MM-dd")</td>
-                        <td><button class="secondary" @onclick="() => DeleteAsync(u.Id)">Delete</button></td>
+                        <td style="color:#868e96;font-size:.85rem">@(u.IsFromConfig ? "appsettings.json" : "database")</td>
+                        <td>
+                            @if (!u.IsFromConfig)
+                            {
+                                <button class="secondary" @onclick="() => DeleteAsync(u.Id)">Delete</button>
+                            }
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -44,6 +57,7 @@
 
 <div class="panel">
     <h2>Add User</h2>
+    <p style="color:#868e96;font-size:.85rem">Adds a database-managed account. Accounts can also be defined in appsettings.json under "Users" (Password for dev, or PasswordHash for production) — not editable here, and a config account with the same username always wins.</p>
     <label>Username</label>
     <input type="text" @bind="_newUsername" />
     <label>Password</label>

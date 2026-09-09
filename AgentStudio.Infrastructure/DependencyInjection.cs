@@ -40,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<IProviderRepository, ProviderRepository>();
         services.AddScoped<IGraphComponentRepository, GraphComponentRepository>();
         services.AddScoped<IExecutionLogRepository, ExecutionLogRepository>();
+        services.Configure<List<UserConfig>>(config.GetSection("Users"));
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<UserService>();
         services.AddScoped<IConversationStore, PersistentConversationStore>();
