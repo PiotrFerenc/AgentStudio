@@ -19,15 +19,21 @@ public sealed class AgentService
     /// <summary>Owner is optional (null for the anonymous-style creation paths tests use directly)
     /// — every real caller through the Web project passes the current logged-in user, but nothing
     /// here requires one, since a null owner just means "only an Admin can edit it" (see
-    /// <see cref="AgentAccess"/>), not an error.</summary>
-    public async Task<(Agent Agent, string RawApiKey)> CreateAsync(CreateAgentRequest request, Guid? ownerId = null, string? ownerUsername = null, CancellationToken ct = default)
+    /// <see cref="AgentAccess"/>), not an error.
+    ///
+    /// <paramref name="template"/> seeds the initial draft from an <see cref="AgentTemplate"/>
+    /// (studio "New from template" flow) instead of the bare Start→Prompt→End
+    /// <see cref="DefaultGraph"/> — the template's Graph and FormFields become the draft's, and
+    /// its SystemInstructions fills in only when the request didn't specify one, so a caller
+    /// that already wrote instructions keeps them.</summary>
+    public async Task<(Agent Agent, string RawApiKey)> CreateAsync(CreateAgentRequest request, Guid? ownerId = null, string? ownerUsername = null, AgentTemplate? template = null, CancellationToken ct = default)
     {
         var (rawKey, hash) = _apiKeys.Generate();
         var agent = new Agent
         {
             Name = request.Name,
             Description = request.Description,
-            SystemInstructions = request.SystemInstructions,
+            SystemInstructions = string.IsNullOrWhiteSpace(request.SystemInstructions) ? template?.SystemInstructions ?? "" : request.SystemInstructions,
             ModelProviderName = request.ModelProviderName,
             ModelName = request.ModelName,
             ApiKeyHash = hash,
@@ -39,7 +45,8 @@ public sealed class AgentService
             AgentId = agent.Id,
             Version = 0,
             Status = AgentVersionStatus.Draft,
-            Graph = DefaultGraph()
+            Graph = template is null ? DefaultGraph() : GraphMapper.ToDomain(template.Graph),
+            FormFields = template?.FormFields ?? new List<FormField>()
         });
         await _agents.AddAsync(agent, ct);
         await _agents.SaveChangesAsync(ct);
@@ -141,6 +148,20 @@ public sealed class AgentService
         agent.ScheduleEnabled = enabled;
         agent.ScheduleIntervalMinutes = intervalMinutes;
         agent.ScheduleInput = input;
+        agent.UpdatedAt = DateTimeOffset.UtcNow;
+        await _agents.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Changes the agent's default LLM provider/model — read-only everywhere before
+    /// this (set once at creation, via CreateAsync/a template). Prompt/documentSearch nodes fall
+    /// back to this when they don't override it themselves.</summary>
+    public async Task UpdateProviderAsync(Guid agentId, string providerName, string modelName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(providerName) || string.IsNullOrWhiteSpace(modelName))
+            throw new InvalidOperationException("Provider and model name are required.");
+        var agent = await _agents.GetAsync(agentId, ct) ?? throw new KeyNotFoundException("Agent not found.");
+        agent.ModelProviderName = providerName;
+        agent.ModelName = modelName;
         agent.UpdatedAt = DateTimeOffset.UtcNow;
         await _agents.SaveChangesAsync(ct);
     }

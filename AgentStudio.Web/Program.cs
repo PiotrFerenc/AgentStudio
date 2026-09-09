@@ -146,7 +146,7 @@ api.MapPost("/agents", async (CreateAgentRequest req, AgentService service, Http
 {
     Guid.TryParse(http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var ownerId);
     var ownerUsername = http.User.FindFirst(ClaimTypes.Name)?.Value;
-    var (agent, rawKey) = await service.CreateAsync(req, ownerId, ownerUsername, ct);
+    var (agent, rawKey) = await service.CreateAsync(req, ownerId, ownerUsername, ct: ct);
     return Results.Created($"/api/agents/{agent.Id}", new
     {
         agent = new AgentDto(agent.Id, agent.Name, agent.Description, agent.SystemInstructions, agent.ModelProviderName, agent.ModelName, agent.CreatedAt),

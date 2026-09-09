@@ -64,8 +64,10 @@ public sealed class StudioApiClient
     public Task<List<Agent>> ListAgentsAsync(CancellationToken ct = default) => _agents.ListAsync(ct);
     public Task<Agent?> GetAgentAsync(Guid id, CancellationToken ct = default) => _agents.GetAsync(id, ct);
 
-    public async Task<(Agent Agent, string RawKey)> CreateAgentAsync(string name, string description, string instructions, string providerName, string modelName, Guid? ownerId = null, string? ownerUsername = null, CancellationToken ct = default) =>
-        await _agentService.CreateAsync(new CreateAgentRequest(name, description, instructions, providerName, modelName), ownerId, ownerUsername, ct);
+    public async Task<(Agent Agent, string RawKey)> CreateAgentAsync(string name, string description, string instructions, string providerName, string modelName, Guid? ownerId = null, string? ownerUsername = null, string? templateId = null, CancellationToken ct = default) =>
+        await _agentService.CreateAsync(new CreateAgentRequest(name, description, instructions, providerName, modelName), ownerId, ownerUsername, AgentTemplateCatalog.Get(templateId), ct);
+
+    public List<AgentTemplate> ListAgentTemplates() => AgentTemplateCatalog.Templates.ToList();
 
     public Task<ValidationResultDto> SaveDraftAsync(
         Guid agentId, WorkflowGraphDto graph, int? maxSteps = null, List<FormField>? formFields = null,
@@ -81,6 +83,9 @@ public sealed class StudioApiClient
 
     public Task UpdateScheduleAsync(Guid agentId, bool enabled, int? intervalMinutes, string input, CancellationToken ct = default) =>
         _agentService.UpdateScheduleAsync(agentId, enabled, intervalMinutes, input, ct);
+
+    public Task UpdateAgentProviderAsync(Guid agentId, string providerName, string modelName, CancellationToken ct = default) =>
+        _agentService.UpdateProviderAsync(agentId, providerName, modelName, ct);
 
     public Task UpdateEnvironmentVariablesAsync(Guid agentId, Dictionary<string, string> variables, CancellationToken ct = default) =>
         _agentService.UpdateEnvironmentVariablesAsync(agentId, variables, ct);

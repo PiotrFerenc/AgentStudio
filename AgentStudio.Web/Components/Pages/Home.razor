@@ -54,6 +54,20 @@
                 <h2>Create Agent</h2>
                 <button class="modal-close" @onclick="CloseCreate" aria-label="Close">×</button>
             </div>
+            <label>Start from</label>
+            <div class="template-picker">
+                <button type="button" class="template-card @(_selectedTemplateId is null ? "active" : "")" @onclick="() => _selectedTemplateId = null">
+                    <strong>Blank</strong>
+                    <span>Start → Prompt → End</span>
+                </button>
+                @foreach (var t in _templates)
+                {
+                    <button type="button" class="template-card @(_selectedTemplateId == t.Id ? "active" : "")" @onclick="() => _selectedTemplateId = t.Id">
+                        <strong>@t.Name</strong>
+                        <span>@t.Description</span>
+                    </button>
+                }
+            </div>
             <label>Name</label>
             <input type="text" @bind="_name" />
             <label>Description</label>
@@ -102,6 +116,14 @@
         cursor: pointer; color: var(--ink-3, #8b8a92); padding: 0 .25rem;
     }
     .modal-close:hover { color: var(--ink-1, #16161a); }
+    .template-picker { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .75rem; }
+    .template-card {
+        text-align: left; background: var(--paper, #fff); border: 1px solid var(--hairline, #e5e4e0);
+        border-radius: 8px; padding: .55rem .75rem; cursor: pointer; display: flex; flex-direction: column; gap: .15rem;
+    }
+    .template-card strong { font-size: .88rem; }
+    .template-card span { font-size: .78rem; color: var(--ink-3, #8b8a92); }
+    .template-card.active { border-color: var(--accent, #3b5bdb); background: color-mix(in srgb, var(--accent, #3b5bdb) 8%, var(--paper, #fff)); }
 </style>
 
 @code {
@@ -117,11 +139,14 @@
     private string? _createdKey;
     private bool _creating;
     private bool _showCreate;
+    private List<AgentStudio.Contracts.AgentTemplate> _templates = new();
+    private string? _selectedTemplateId;
 
     protected override async Task OnInitializedAsync()
     {
         _agents = await Api.ListAgentsAsync();
         _providers = await Api.ListProvidersAsync();
+        _templates = Api.ListAgentTemplates();
     }
 
     private void OpenCreate() => _showCreate = true;
@@ -131,6 +156,7 @@
         _showCreate = false;
         _name = _description = _instructions = _providerName = _modelName = "";
         _createdKey = null;
+        _selectedTemplateId = null;
     }
 
     private async Task CreateAsync()
@@ -147,7 +173,7 @@
                     ownerId = id;
                 ownerUsername = state.User.Identity?.Name;
             }
-            var (agent, key) = await Api.CreateAgentAsync(_name, _description, _instructions, _providerName, _modelName, ownerId, ownerUsername);
+            var (agent, key) = await Api.CreateAgentAsync(_name, _description, _instructions, _providerName, _modelName, ownerId, ownerUsername, _selectedTemplateId);
             _createdKey = key;
             _agents = await Api.ListAgentsAsync();
         }
