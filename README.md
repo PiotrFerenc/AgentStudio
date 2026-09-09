@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 176 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 214 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -88,7 +88,7 @@ edycji bezpośrednio w bazie lub podniesienia domyślnej wartości w kodzie.
 
 ## Workflow
 
-Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `integrator`, `parallel`, `join`, `end`.
+Typy węzłów: `start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `integrator`, `parallel`, `join`, `end`.
 
 - Graf wykonuje się sekwencyjnie od Start, z wyjątkiem regionów `parallel`/`join` (fazy 2):
   ≥2 gałęzie z jednego `ParallelNode` biegną współbieżnie, każda z własną kopią zmiennych,
@@ -169,6 +169,21 @@ zagnieżdżony JSON (dla kolejnego `jsonParse` po nim). Niepoprawny JSON albo ni
 (bez wildcardów/filtrów/slice'ów) — jedna wartość z ustalonego kształtu to cały use case, więc
 ręcznie pisany `JsonPathExtractor` nad `System.Text.Json` wystarcza, bez nowej zależności NuGet.
 
+## Formuła (faza 8)
+
+Węzeł `expression` liczy jedną wartość ze wzoru w stylu arkusza kalkulacyjnego — zamiast
+łańcucha condition+variable dla czegoś co tak naprawdę jest jednym wyrażeniem. Arytmetyka
+(`+ - * /`), porównania (`== != < > <= >=`), logika (`&& || !`), nawiasy, funkcje `IF(cond,a,b)`,
+`CONCAT(a,b,...)`, `LEN(s)`, `UPPER(s)`, `LOWER(s)`, `TRIM(s)`, `ROUND(n,digits)`, `ABS(n)`.
+`{input}`/`{variables.x}` wstawiane jako **wartości** (liczba jeśli tekst zmiennej parsuje się
+jako liczba, bool dla dokładnie `"true"`/`"false"`, inaczej string) — nie tekstowo do środka
+wzoru, więc wartość zmiennej nigdy nie może rozjechać składni formuły (np. zmienna zawierająca
+`)` czy przecinek jest bezpieczna). Ręcznie pisany recursive-descent parser w
+`AgentStudio.Domain/FormulaEvaluator.cs`, zero zależności NuGet, ten sam wybór co
+`JsonPathExtractor` dla JSON. Błąd (nieznana funkcja, zła liczba argumentów, dzielenie przez
+zero, wartość nie-liczbowa w arytmetyce) rzuca czytelny `InvalidOperationException` — ten sam
+fail-clearly kontrakt co pozostałe węzły.
+
 ## Test węzła bez publikacji (faza 6)
 
 Panel edycji węzła w edytorze grafu ma sekcję "Test this node" — uruchamia **tylko ten jeden
@@ -215,7 +230,7 @@ Sekrety i wrażliwe nagłówki nie są logowane.
 
 ```bash
 dotnet test
-# 176 testów: walidator grafu (w tym parallel/join), evaluator warunków,
+# 214 testów: walidator grafu (w tym parallel/join), evaluator warunków,
 # runner (prompt/condition/http/multi-turn/loop/parallel/documentSearch/subAgent/databaseQuery),
 # publish roundtrip, SSRF, REST API end-to-end (auth 401/404/400), user/role management, trwała
 # pamięć rozmów, pętle (iteracje + MaxSteps guard), równoległość (fan-out/fan-in, merge,
@@ -244,7 +259,13 @@ dotnet test
 # odrzuca start/parallel/join jako niesensowne do testowania w izolacji), GraphDiff (dodane/
 # usunięte/zmienione węzły i krawędzie, niezmienione właściwości nie są raportowane),
 # DatabaseResultTable (rozpoznaje kopertę wyniku databaseQuery po kluczach rows/rowCount,
-# null jako pusty string, obce kształty JSON — w tym zwykły chat/jsonParse wynik — odrzucone)
+# null jako pusty string, obce kształty JSON — w tym zwykły chat/jsonParse wynik — odrzucone),
+# FormulaEvaluator (arytmetyka + precedencja, porównania, logika &&/||/!, IF/CONCAT/LEN/UPPER/
+# LOWER/TRIM/ROUND/ABS, placeholdery jako wartości atomowe — wartość zmiennej ze znakami
+# składni formuły nigdy nie rozjeżdża parsowania, brakująca zmienna → pusty string zamiast
+# wyjątku, dzielenie przez zero/nieznana funkcja/zła liczba argumentów/wartość nie-liczbowa w
+# arytmetyce → czytelny błąd), ExpressionNode przez pełny WorkflowRunner (IF na zmiennej z
+# poprzedniego węzła, błędna formuła kończy się [error] zamiast zawieszenia)
 ```
 
 ## Wdrożenie (Windows/IIS)

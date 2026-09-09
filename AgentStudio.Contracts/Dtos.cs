@@ -102,6 +102,12 @@ public static class GraphMapper
                     Path = Prop(n, "path"),
                     ResultVariable = Prop(n, "resultVariable", "jsonResult")
                 },
+                "expression" => new ExpressionNode
+                {
+                    Id = n.Id,
+                    Formula = Prop(n, "formula"),
+                    ResultVariable = Prop(n, "resultVariable", "result")
+                },
                 _ => throw new InvalidOperationException($"Unknown node type: {n.Type}")
             };
             node.Label = n.Label;
@@ -148,6 +154,9 @@ public static class GraphMapper
                     break;
                 case JsonParseNode j:
                     n.Props["input"] = j.Input; n.Props["path"] = j.Path; n.Props["resultVariable"] = j.ResultVariable;
+                    break;
+                case ExpressionNode x:
+                    n.Props["formula"] = x.Formula; n.Props["resultVariable"] = x.ResultVariable;
                     break;
             }
             dto.Nodes.Add(n);

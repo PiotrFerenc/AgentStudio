@@ -336,6 +336,23 @@ public sealed class WorkflowRunner
                     current = NextByEdge(graph, jsonParse.Id, branch: null);
                     break;
                 }
+                case ExpressionNode expr:
+                {
+                    var step = _logWriter.StartStep(log, expr.Id, expr.Type);
+                    try
+                    {
+                        var result = FormulaEvaluator.Evaluate(expr.Formula, variables);
+                        variables[expr.ResultVariable] = result;
+                        _logWriter.CompleteStep(step, $"expression: {result}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logWriter.FailStep(step, ex.Message);
+                        throw;
+                    }
+                    current = NextByEdge(graph, expr.Id, branch: null);
+                    break;
+                }
                 case IntegratorNode integrator:
                 {
                     var step = _logWriter.StartStep(log, integrator.Id, integrator.Type);

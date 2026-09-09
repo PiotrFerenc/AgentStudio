@@ -113,6 +113,18 @@ else
             <input type="text" @bind="JsonParseResultVariable" @bind:event="oninput" @bind:after="Changed" />
             <p style="color:#868e96;font-size:.8rem">Extracts one value out of a JSON blob. Fails clearly (not silently empty) if the input isn't valid JSON or the path doesn't exist.</p>
             break;
+        case "expression":
+            <label>Formula</label>
+            <textarea @bind="ExpressionFormula" @bind:after="Changed" placeholder='IF({variables.age} &gt;= 18, "adult", "minor")'></textarea>
+            <label>Result variable</label>
+            <input type="text" @bind="ExpressionResultVariable" @bind:event="oninput" @bind:after="Changed" />
+            <p style="color:#868e96;font-size:.8rem">
+                Arithmetic <code>+ - * /</code>, comparisons <code>== != &lt; &gt; &lt;= &gt;=</code>, logic <code>&amp;&amp; || !</code>, parens.
+                Functions: <code>IF(cond,a,b)</code>, <code>CONCAT(a,b,...)</code>, <code>LEN(s)</code>, <code>UPPER(s)</code>, <code>LOWER(s)</code>,
+                <code>TRIM(s)</code>, <code>ROUND(n,digits)</code>, <code>ABS(n)</code>. Use <code>{input}</code>/<code>{variables.x}</code> for values —
+                a numeric-looking variable is treated as a number automatically.
+            </p>
+            break;
         case "integrator":
             <label>Integrator</label>
             <select @bind="IntegratorName" @bind:after="Changed">
@@ -273,6 +285,8 @@ else
     private string JsonParseInput { get => Get("input", "{input}"); set => Put("input", value); }
     private string JsonParsePath { get => Get("path"); set => Put("path", value); }
     private string JsonParseResultVariable { get => Get("resultVariable", "jsonResult"); set => Put("resultVariable", value); }
+    private string ExpressionFormula { get => Get("formula"); set => Put("formula", value); }
+    private string ExpressionResultVariable { get => Get("resultVariable", "result"); set => Put("resultVariable", value); }
 
     private string DbParametersText
     {

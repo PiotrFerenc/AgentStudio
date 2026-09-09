@@ -297,6 +297,16 @@ public sealed class JsonParseNode : WorkflowNode
     public string ResultVariable { get; set; } = "jsonResult";
 }
 
+/// <summary>Computes one value with a small spreadsheet-like formula (phase 8) — arithmetic,
+/// comparisons, IF/CONCAT/LEN/etc — instead of chaining condition+variable nodes for something
+/// that's really one expression. See <see cref="FormulaEvaluator"/> for the grammar/functions.</summary>
+public sealed class ExpressionNode : WorkflowNode
+{
+    public override string Type => "expression";
+    public string Formula { get; set; } = "";
+    public string ResultVariable { get; set; } = "result";
+}
+
 /// <summary>Calls a registered IIntegrator by name (phase 4) — the extension point for custom
 /// integrations (GitLab, Jira, ...). Config values support {variables.x}/{input} placeholders,
 /// expanded before being handed to the integrator — same rigor as DatabaseQueryNode.Parameters.

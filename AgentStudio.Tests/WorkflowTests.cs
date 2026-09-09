@@ -850,4 +850,48 @@ public class WorkflowRunnerTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.DebugNodeAsync(agent, provider, graph, nodeId, new Dictionary<string, string>()));
         Assert.Contains(expectedTypeInMessage, ex.Message);
     }
+
+    [Fact]
+    public async Task ExpressionNode_computes_a_formula_and_writes_it_to_variable()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new VariableNode { Id = "v", Name = "age", Value = "20" });
+        graph.Nodes.Add(new ExpressionNode { Id = "x", Formula = "IF({variables.age} >= 18, \"adult\", \"minor\")", ResultVariable = "category" });
+        graph.Nodes.Add(new EndNode { Id = "e", OutputTemplate = "{variables.category}" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "v" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "v", TargetNodeId = "x" });
+        graph.Edges.Add(new WorkflowEdge { Id = "3", SourceNodeId = "x", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
+            output += chunk;
+
+        Assert.Equal("adult", output);
+        Assert.Equal("adult", conversation.Variables["category"]);
+    }
+
+    [Fact]
+    public async Task ExpressionNode_bad_formula_fails_clearly_instead_of_hanging()
+    {
+        var graph = new WorkflowGraph();
+        graph.Nodes.Add(new StartNode { Id = "s" });
+        graph.Nodes.Add(new ExpressionNode { Id = "x", Formula = "NOPE(1)", ResultVariable = "r" });
+        graph.Nodes.Add(new EndNode { Id = "e" });
+        graph.Edges.Add(new WorkflowEdge { Id = "1", SourceNodeId = "s", TargetNodeId = "x" });
+        graph.Edges.Add(new WorkflowEdge { Id = "2", SourceNodeId = "x", TargetNodeId = "e" });
+
+        var runner = new WorkflowRunner(new FakeChatClientFactory(), new FakeHttp(), new FakeLogWriter(), new FakeDocumentSearch(), new FakeAgentRepository(), new FakeProviderRepository(), new FakeDatabaseQueryExecutor(), Array.Empty<IIntegrator>());
+        var (agent, version, provider, conversation) = Fixture(graph);
+
+        var output = "";
+        await foreach (var chunk in runner.RunAsync(agent, version, provider, conversation, "go"))
+            output += chunk;
+
+        Assert.Contains("[error]", output);
+        Assert.Contains("unknown function", output);
+    }
 }

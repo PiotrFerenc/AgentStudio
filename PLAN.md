@@ -1333,3 +1333,76 @@ zachowanie istniejących grafów.
 ## 5. Status
 
 ✅ Zrealizowane.
+
+# Plan dla AgentStudio — faza 8
+
+## 1. Cel fazy 8
+
+Kolejna funkcjonalność z listy inspirowanej Copilot/Power Apps (pozycja #1 — "Formuła-node
+zamiast tylko template"): węzeł grafu liczący jedną wartość ze wzoru arytmetyczno-logicznego
+(`IF`/`CONCAT`/`LEN`/porównania), żeby nie trzeba było łączyć condition+variable+jsonParse dla
+czegoś co tak naprawdę jest jednym wyrażeniem.
+
+## 2. Zasady projektowe (ladder)
+
+- **Ręcznie pisany recursive-descent parser, nie biblioteka wyrażeń.** Ten sam wybór co
+  `JsonPathExtractor` zamiast pełnego JSONPath — mały, ustalony zestaw operacji
+  (arytmetyka, porównania, logika, garść funkcji) nie usprawiedliwia nowej zależności NuGet.
+  Gramatyka klasyczna, precedencja operatorów jak w Excel/C#: `||` → `&&` → `!` → `==`/`!=` →
+  `<`/`>`/`<=`/`>=` → `+`/`-` → `*`/`/` → jednoargumentowy `-`/`!` → wartość/nawiasy/funkcja.
+- **Placeholdery jako atomowe tokeny wartości, nie substytucja tekstowa.** Reszta projektu
+  (`ExpandTemplate` w `WorkflowRunner`) podstawia `{variables.x}` jako tekst PRZED dalszym
+  przetwarzaniem — dla formuły to niebezpieczne (wartość zmiennej zawierająca `)`, `,` albo
+  operator rozjechałaby parsowanie, czyniąc formułę podatną na coś w rodzaju injection przez
+  dane użytkownika). Zamiast tego tokenizer FormulaEvaluator rozpoznaje `{...}` jako całość i
+  odpytuje słownik zmiennych bezpośrednio, tworząc gotową typowaną wartość (liczba/bool/string)
+  — wartość nigdy nie wraca do bycia tekstem źródłowym formuły.
+- **Trzy typy wartości (liczba/string/bool), automatyczna koercja tylko liczba↔string.**
+  Zmienna przechowywana jako tekst "20" staje się liczbą automatycznie (bo tak działają
+  wszystkie zmienne w tym projekcie — zawsze string, semantyka nadawana w miejscu użycia).
+  `AsBool` **nie** koercjuje liczb (0/niezerowa) do bool — tylko dosłowne `true`/`false` — żeby
+  nie było niejawnej, zaskakującej reguły "0 to falsy" bez wyraźnego porównania.
+  `+`/`-`/`*`/`/` działają tylko na liczbach (rzucają czytelny błąd na string) — łączenie
+  tekstu to jawne `CONCAT(...)`, nie przeciążony `+`, żeby `"1" + "2"` nie było niejednoznaczne
+  między dodawaniem a konkatenacją.
+- **Fail-clearly na każdym etapie**, ten sam kontrakt co `JsonPathExtractor`/`DatabaseQueryNode`:
+  nieznana funkcja, zła liczba argumentów, dzielenie przez zero, wartość nie-liczbowa w
+  arytmetyce, niezamknięty string/nawias — wszystko `InvalidOperationException` z treścią
+  wskazującą dokładnie co i (gdzie to możliwe) w którym miejscu formuły.
+- **Case w `WorkflowNodeConverter` dopisany od razu**, ten sam nawyk co w fazach 4/6 — nauka z
+  fazy 2 etap 4 (brakujący case = deadlock, nie czytelny błąd walidacji).
+
+## 3. Zmiany
+
+- `AgentStudio.Domain/Agent.cs`: `ExpressionNode : WorkflowNode { Formula, ResultVariable }`.
+- `AgentStudio.Domain/AgentStudioJson.cs`: case `"expression"` w `WorkflowNodeConverter.Read`.
+- `AgentStudio.Domain/FormulaEvaluator.cs` (nowy plik): tokenizer + recursive-descent parser,
+  statyczny `Evaluate(string formula, IReadOnlyDictionary<string,string> variables)`.
+- `AgentStudio.Contracts/Dtos.cs` (`GraphMapper`): case `"expression"` w `ToDomain`/`ToDto`.
+- `AgentStudio.Application/WorkflowRunner.cs`: case `ExpressionNode` — **bez** `ExpandTemplate`
+  (formuła sama rozwiązuje swoje placeholdery), `FormulaEvaluator.Evaluate`, wynik do
+  `ResultVariable`, standardowy try/catch/`FailStep`/rethrow.
+- Studio UI: `expression` w palecie `GraphEditor`, edytor w `NodePropertiesEditor` (Formula
+  textarea, Result variable, ściągawka funkcji w podpowiedzi). Panel "Test this node" (faza 6)
+  działa na nim automatycznie — nie jest na liście wykluczonych typów.
+
+## 4. Testy ✅
+
+- `FormulaEvaluatorTests.cs` (nowy plik, 22 przypadki): arytmetyka + precedencja + nawiasy,
+  dzielenie przez zero, porównania (liczby i stringi), logika `&&`/`||`/`!`, `IF` zwraca
+  właściwą gałąź, `CONCAT` miesza typy jako tekst, `LEN`/`UPPER`/`LOWER`/`TRIM`/`ROUND`/`ABS`,
+  placeholdery z `{variables.x}`/`{input}`, brakująca zmienna → pusty string (nie wyjątek),
+  **dowód że wartość zmiennej nie może rozjechać składni** (zmienna zawierająca `) * evil(`
+  bezpiecznie trafia do `CONCAT` jako zwykły tekst), nieznana funkcja / zła liczba argumentów /
+  string w arytmetyce / niezamknięty string / niezbalansowany nawias → czytelny błąd.
+- `WorkflowTests.cs`: `ExpressionNode_computes_a_formula_and_writes_it_to_variable` (przez
+  pełny `WorkflowRunner`, `VariableNode` → `ExpressionNode` z `IF` → `EndNode`),
+  `ExpressionNode_bad_formula_fails_clearly_instead_of_hanging` (regresja na deadlock).
+- 214/214 testów zielonych.
+- Zweryfikowane end-to-end na żywym serwerze przez REST: graf `start → variable (age={input})
+  → expression (IF({variables.age} >= 18, "adult", "minor")) → end`, opublikowany, uruchomiony
+  z `input="20"` → `"adult"`, z `input="10"` → `"minor"`.
+
+## 5. Status
+
+✅ Zrealizowane.

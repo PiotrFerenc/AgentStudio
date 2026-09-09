@@ -134,9 +134,13 @@ The studio UI and `/api/...` require a logged-in session. The runtime agent endp
 
 ### Workflow node types
 
-`start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `integrator`, `parallel`, `join`, `end`. Placeholders in templates: `{input}`, `{variables.name}`. Condition operators: `Equals`, `NotEquals`, `Contains`, `StartsWith`, `EndsWith`, `>`, `<`, `>=`, `<=`.
+`start`, `prompt`, `message`, `condition`, `http`, `variable`, `documentSearch`, `subAgent`, `databaseQuery`, `jsonParse`, `expression`, `integrator`, `parallel`, `join`, `end`. Placeholders in templates: `{input}`, `{variables.name}`. Condition operators: `Equals`, `NotEquals`, `Contains`, `StartsWith`, `EndsWith`, `>`, `<`, `>=`, `<=`.
 
 `jsonParse` extracts one value from a JSON blob by a small dot/bracket path (`data.items[0].name`) — `AgentStudio.Domain/JsonPathExtractor.cs`, a hand-rolled walker over `System.Text.Json` (not a full JSONPath implementation — one value out of a known shape is the whole use case). `Input` is template-expanded, `Path` is not (it's a fixed path into a known response shape, not runtime-controlled). Throws a clear `InvalidOperationException` naming the bad property/index/JSON rather than returning silently empty — same fail-clearly contract as `DatabaseQueryNode`/`HttpNode`.
+
+### Formula node (phase 8)
+
+`ExpressionNode { Formula, ResultVariable }` computes one value with a small spreadsheet-like formula language — `AgentStudio.Domain/FormulaEvaluator.cs`, a hand-rolled recursive-descent parser (arithmetic `+ - * /`, comparisons `== != < > <= >=`, boolean `&& || !`, parens, functions `IF`/`CONCAT`/`LEN`/`UPPER`/`LOWER`/`TRIM`/`ROUND`/`ABS`). Zero NuGet dependency, same "smallest thing that solves the use case" choice as `JsonPathExtractor` not being full JSONPath. `{input}`/`{variables.x}` placeholders are resolved to **typed atomic tokens** during scanning (number if the stored text parses as one, bool for exactly `"true"`/`"false"`, string otherwise) — never text-substituted into the formula source the way `ExpandTemplate` works elsewhere — so a variable whose value happens to contain `)`/`,`/operators can never break the grammar or get re-parsed as formula syntax. `WorkflowRunner`'s `ExpressionNode` case calls `FormulaEvaluator.Evaluate` directly (no `ExpandTemplate` step) for exactly this reason. Fails clearly (unknown function, wrong arg count, division by zero, non-numeric value in arithmetic) rather than silently coercing — same contract as `JsonPathExtractor`/`DatabaseQueryNode`.
 
 ### Single-node debug (phase 6)
 
