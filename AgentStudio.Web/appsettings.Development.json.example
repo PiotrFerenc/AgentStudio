@@ -1,0 +1,35 @@
+{
+  "ConnectionStrings": {
+    "AgentStudio": "Host=localhost;Port=5433;Database=agentstudio;Username=agentstudio;Password=CHANGE_ME"
+  },
+  "Users": [
+    {
+      "Username": "admin",
+      "PasswordHash": "GENERATED_BY_SETUP_FLOW",
+      "Role": "Admin"
+    }
+  ],
+  "ModelProviders": [
+    {
+      "Name": "openai",
+      "BaseUrl": "https://api.openai.com",
+      "DefaultModel": "gpt-4o-mini",
+      "EmbeddingModel": "text-embedding-3-small",
+      "ApiKey": "sk-CHANGE_ME"
+    }
+  ],
+  "DatabaseConnections": [
+    {
+      "Name": "test-data",
+      "Provider": "postgres",
+      "ConnectionString": "Host=localhost;Port=5433;Database=agentstudio_test;Username=agentstudio;Password=CHANGE_ME",
+      "ReadOnly": true
+    }
+  ],
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  }
+}
