@@ -1,7 +1,9 @@
-# AgentStudio — Deployment (IIS + PostgreSQL)
+# AgentStudio — Deployment (IIS + SQLite)
 
 Production topology: a single ASP.NET Core app (`AgentStudio.Web`) hosted in-process by IIS,
-backed by PostgreSQL. The studio UI, the `/api/...` REST endpoints, the public chat page
+backed by SQLite (a single file — app storage: agents, versions, conversations, documents,
+execution logs). Postgres is optional and only needed if agents use the `databaseQuery` workflow
+node (queries against external databases, unrelated to the app's own storage). The studio UI, the `/api/...` REST endpoints, the public chat page
 (`/chat/{agentId}/{version}`), the public form page (`/run/{agentId}/{version}`, phase 3 —
 a one-shot alternative to chat) and the embeddable widget (`/widget/agentstudio.js`) are all
 served by this one app — there is no separate API process.
@@ -44,46 +46,49 @@ framework-dependent by default; install the **ASP.NET Core 10 Hosting Bundle** o
 dotnet publish AgentStudio.Web -c Release -r win-x64 --self-contained -o ./publish
 ```
 
-## 2. PostgreSQL
+## 2. Storage
 
-### Option A — docker-compose (repo includes `docker-compose.yml`)
+### App storage — SQLite (required)
+
+No server to install. Create `appsettings.Production.json` next to `AgentStudio.Web.dll` pointing
+at a file — an absolute path is safest under IIS, since the app's working directory isn't always
+what you'd expect:
+
+```json
+{
+  "ConnectionStrings": {
+    "AgentStudio": "Data Source=C:\\inetpub\\agentstudio\\data\\agentstudio.db"
+  }
+}
+```
+
+EF Core migrations run automatically at startup (`MigrateAsync`) and create the file if it
+doesn't exist yet — just make sure the app pool identity has write access to that directory. If
+`ConnectionStrings:AgentStudio` is empty or the literal `"InMemory"`, the app falls back to EF
+InMemory (data lost on every restart) — fine for CI, not for production.
+
+### Optional: Postgres for the `databaseQuery` node
+
+Only needed if agents use the `databaseQuery` workflow node (phase 3) to query external
+databases — unrelated to the app's own storage above.
 
 ```bash
 docker compose up -d postgres
 ```
 
-This starts `postgres:17`, host port **5433** → container 5432 (remapped from the default 5432
-because that's commonly already taken by another local Postgres on a dev box; on a dedicated
-production host, either keep 5433 and match it in the connection string below, or edit
-`docker-compose.yml` back to `"5432:5432"` if nothing else needs that port). Credentials/database
-are in `docker-compose.yml`. Requires a docker-compose that supports the `3.9` file format
-(the ancient `docker-compose` v1 binary does not — use the `docker compose` v2 plugin, or
-`docker run` directly with the same image/env/volume as a fallback).
-
-### Option B — native install
+(repo includes `docker-compose.yml`; starts `postgres:17`, host port **5433** → container 5432,
+remapped from the default 5432 because that's commonly already taken by another local Postgres on
+a dev box — on a dedicated production host, either keep 5433 or edit `docker-compose.yml` back to
+`"5432:5432"`. Requires the `docker compose` v2 plugin, not the ancient `docker-compose` v1
+binary). Or install natively:
 
 ```sql
 CREATE USER agentstudio WITH PASSWORD 'change-me';
 CREATE DATABASE agentstudio OWNER agentstudio;
 ```
 
-### Connection string
-
-Create `appsettings.Production.json` next to `AgentStudio.Web.dll` (port must match whatever
-your PostgreSQL is actually listening on — 5433 for Option A as configured above, 5432 for a
-typical Option B / standalone install):
-
-```json
-{
-  "ConnectionStrings": {
-    "AgentStudio": "Host=localhost;Port=5432;Database=agentstudio;Username=agentstudio;Password=change-me"
-  }
-}
-```
-
-If agents use the `databaseQuery` workflow node (phase 3), also add a `DatabaseConnections`
-array to the same file — these are config, not admin-panel data, so they're set once per
-deployment rather than through the UI:
+Then add a `DatabaseConnections` array to `appsettings.Production.json` — these are config, not
+admin-panel data, so they're set once per deployment rather than through the UI:
 
 ```json
 {
@@ -194,21 +199,25 @@ internal services, add to `appsettings.Production.json`:
 { "HttpTool": { "AllowedHosts": [ "internal-api.corp.local" ] } }
 ```
 
-## 5. Backups (pg_dump cron)
+## 5. Backups (file copy cron)
+
+The whole app storage is one SQLite file — back it up with a plain file copy, not a database
+tool. Use SQLite's own `.backup` (via the `sqlite3` CLI, or `VACUUM INTO` through any SQLite
+client) rather than `cp` on a live file, so a backup never runs mid-write:
 
 ```cron
 # /etc/cron.d/agentstudio-backup — nightly at 02:30, 14 days retention
-30 2 * * * postgres pg_dump -Fc agentstudio > /var/backups/agentstudio/agentstudio-$(date +\%F).dump && find /var/backups/agentstudio -name '*.dump' -mtime +14 -delete
+30 2 * * * appuser sqlite3 /path/to/agentstudio.db ".backup /var/backups/agentstudio/agentstudio-$(date +\%F).db" && find /var/backups/agentstudio -name '*.db' -mtime +14 -delete
 ```
 
-Restore: `pg_restore -d agentstudio --clean file.dump`.
+Restore: stop the app, replace `agentstudio.db` with the backup file, start the app again.
 
-Also back up `appsettings.Production.json` (contains DB password and provider keys).
+Also back up `appsettings.Production.json` (contains provider API keys) — accounts (`Users`)
+are config-only, not in the database, so that file is the only backup they need.
 
-Since phase 2, `Conversations` (chat history) and `Users` (accounts) live in this same database
-— the backup above already covers them, no separate step needed. Conversations have no
-auto-expiry by default, so this table grows without bound unless you opt into the purge job
-below.
+Since phase 2, `Conversations` (chat history) live in this same SQLite file — the backup above
+already covers them, no separate step needed. Conversations have no auto-expiry by default, so
+this table grows without bound unless you opt into the purge job below.
 
 ### Conversation retention (opt-in)
 

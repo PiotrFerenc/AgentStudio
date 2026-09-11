@@ -1,6 +1,6 @@
 {
   "ConnectionStrings": {
-    "AgentStudio": "Host=localhost;Port=5433;Database=agentstudio;Username=agentstudio;Password=CHANGE_ME"
+    "AgentStudio": "Data Source=agentstudio.db"
   },
   "Users": [
     {

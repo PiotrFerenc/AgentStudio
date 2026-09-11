@@ -57,7 +57,7 @@ public sealed class AgentStudioDbContext : DbContext
             e.Ignore(a => a.Draft);
             e.HasMany(a => a.Versions).WithOne().HasForeignKey(v => v.AgentId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(a => a.Collaborators).WithOne().HasForeignKey(c => c.AgentId).OnDelete(DeleteBehavior.Cascade);
-            e.Property(a => a.EnvironmentVariables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
+            e.Property(a => a.EnvironmentVariables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>());
         });
 
         modelBuilder.Entity<AgentCollaborator>(e =>
@@ -69,9 +69,7 @@ public sealed class AgentStudioDbContext : DbContext
         {
             e.HasKey(v => v.Id);
             e.Property(v => v.Id).ValueGeneratedOnAdd();
-            e.Property(v => v.GraphJson).HasColumnType("jsonb");
             e.Ignore(v => v.Graph);
-            e.Property(v => v.FormFieldsJson).HasColumnType("jsonb");
             e.Ignore(v => v.FormFields);
         });
 
@@ -79,15 +77,15 @@ public sealed class AgentStudioDbContext : DbContext
         {
             e.HasKey(l => l.Id);
             e.HasIndex(l => l.ExecutionId).IsUnique();
-            e.Property(l => l.Steps).HasConversion(stepsConverter, JsonValueComparer<List<ExecutionStep>>()).HasColumnType("jsonb");
+            e.Property(l => l.Steps).HasConversion(stepsConverter, JsonValueComparer<List<ExecutionStep>>());
         });
 
         modelBuilder.Entity<ConversationState>(e =>
         {
             e.HasKey(c => c.ConversationId);
             e.Property(c => c.ConversationId).HasMaxLength(64);
-            e.Property(c => c.Messages).HasConversion(messagesConverter, JsonValueComparer<List<ChatMessage>>()).HasColumnType("jsonb");
-            e.Property(c => c.Variables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>()).HasColumnType("jsonb");
+            e.Property(c => c.Messages).HasConversion(messagesConverter, JsonValueComparer<List<ChatMessage>>());
+            e.Property(c => c.Variables).HasConversion(variablesConverter, JsonValueComparer<Dictionary<string, string>>());
             e.HasIndex(c => new { c.AgentId, c.AgentVersion });
         });
 
@@ -103,7 +101,7 @@ public sealed class AgentStudioDbContext : DbContext
             e.HasKey(c => c.Id);
             e.HasIndex(c => c.DocumentId);
             e.HasIndex(c => c.AgentId);
-            e.Property(c => c.Embedding).HasConversion(embeddingConverter, JsonValueComparer<List<float>>()).HasColumnType("jsonb");
+            e.Property(c => c.Embedding).HasConversion(embeddingConverter, JsonValueComparer<List<float>>());
         });
 
         modelBuilder.Entity<AgentCollectionEntry>(e =>
@@ -117,8 +115,32 @@ public sealed class AgentStudioDbContext : DbContext
         {
             e.HasKey(c => c.Id);
             e.Property(c => c.Name).HasMaxLength(200).IsRequired();
-            e.Property(c => c.GraphJson).HasColumnType("jsonb");
         });
+
+        // SQLite's EF provider refuses to translate ORDER BY/WHERE comparisons on a native
+        // DateTimeOffset column at all (not a value quirk — a blanket translation restriction).
+        // Store every DateTimeOffset/DateTimeOffset? column as UTC ticks (a plain long) instead —
+        // ordinary numeric comparisons translate fine, and the CLR-side type stays DateTimeOffset
+        // everywhere else in the app. Applied globally so a newly added DateTimeOffset property
+        // is covered automatically, the same "can't be forgotten" discipline as the JSON
+        // converter/GraphMapper cases elsewhere in this codebase.
+        var dateTimeOffsetConverter = new ValueConverter<DateTimeOffset, long>(
+            d => d.UtcTicks,
+            t => new DateTimeOffset(t, TimeSpan.Zero));
+        var nullableDateTimeOffsetConverter = new ValueConverter<DateTimeOffset?, long?>(
+            d => d.HasValue ? d.Value.UtcTicks : null,
+            t => t.HasValue ? new DateTimeOffset(t.Value, TimeSpan.Zero) : null);
+
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.ClrType == typeof(DateTimeOffset))
+                    property.SetValueConverter(dateTimeOffsetConverter);
+                else if (property.ClrType == typeof(DateTimeOffset?))
+                    property.SetValueConverter(nullableDateTimeOffsetConverter);
+            }
+        }
     }
 }
 

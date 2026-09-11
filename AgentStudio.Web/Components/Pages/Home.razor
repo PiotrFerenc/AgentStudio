@@ -86,13 +86,6 @@
             <input type="text" @bind="_modelName" placeholder="e.g. llama3.1, qwen2.5" />
             <br />
             <button class="primary" @onclick="CreateAsync" disabled="@_creating">Create</button>
-            @if (_createdKey is not null)
-            {
-                <div class="panel" style="background:#fff3bf;margin-top:1rem">
-                    <strong>API key (shown once):</strong>
-                    <code>@_createdKey</code>
-                </div>
-            }
         </div>
     </div>
 }
@@ -136,7 +129,6 @@
     private string _instructions = "";
     private string _providerName = "";
     private string _modelName = "";
-    private string? _createdKey;
     private bool _creating;
     private bool _showCreate;
     private List<AgentStudio.Contracts.AgentTemplate> _templates = new();
@@ -155,7 +147,6 @@
     {
         _showCreate = false;
         _name = _description = _instructions = _providerName = _modelName = "";
-        _createdKey = null;
         _selectedTemplateId = null;
     }
 
@@ -174,8 +165,10 @@
                 ownerUsername = state.User.Identity?.Name;
             }
             var (agent, key) = await Api.CreateAgentAsync(_name, _description, _instructions, _providerName, _modelName, ownerId, ownerUsername, _selectedTemplateId);
-            _createdKey = key;
-            _agents = await Api.ListAgentsAsync();
+            // Navigate to the new agent instead of leaving the modal open — the one-time API
+            // key is no longer shown inline here, but "Regenerate API key" on that page follows
+            // the same shown-once pattern if the user needs it.
+            Nav.NavigateTo($"/agents/{agent.Id}");
         }
         finally
         {

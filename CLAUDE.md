@@ -25,22 +25,20 @@ cd AgentStudio.Web && dotnet run
 ```
 Single app on `http://localhost:5251` — studio UI, `/api/...`, SSE, widget, public `/chat` and `/run` pages all served together, no separate API process.
 
-**Requires Postgres.** `appsettings.Development.json` points at `Host=localhost;Port=5433;...` (port 5433, not 5432, to avoid colliding with another local Postgres). Start it:
-```bash
-docker run -d --name agentstudio-postgres \
-  -e POSTGRES_DB=agentstudio -e POSTGRES_USER=agentstudio -e POSTGRES_PASSWORD=agentstudio \
-  -p 5433:5432 -v agentstudio_pgdata:/var/lib/postgresql/data postgres:17
-```
-EF Core migrations apply automatically at app startup (`MigrateAsync`). `ConnectionStrings:AgentStudio` empty or the literal `"InMemory"` falls back to EF InMemory (used by CI and by `ApiEndpointTests`' `WebApplicationFactory`).
+**App storage is SQLite**, a single file next to `AgentStudio.Web` (e.g. `ConnectionStrings:AgentStudio` = `Data Source=agentstudio.db` in `appsettings.Development.json`). No server/Docker needed to run the app itself — the file is created and migrated automatically at startup. `ConnectionStrings:AgentStudio` empty or the literal `"InMemory"` falls back to EF InMemory (used by CI and by `ApiEndpointTests`' `WebApplicationFactory`).
+
+EF Core migrations apply automatically at app startup (`MigrateAsync`).
 
 EF migrations (needs `dotnet-ef` on PATH):
 ```bash
 export PATH="$PATH:$HOME/.dotnet/tools"
 dotnet ef migrations add <Name> --project AgentStudio.Infrastructure --startup-project AgentStudio.Web
 dotnet ef database update --project AgentStudio.Infrastructure --startup-project AgentStudio.Web \
-  --connection "Host=localhost;Port=5433;Database=agentstudio;Username=agentstudio;Password=agentstudio"
+  --connection "Data Source=agentstudio.db"
 ```
-The design-time factory (`AgentStudioDbContextFactory`) uses a placeholder connection string with no port — `database update` needs `--connection` pointed at the real dev DB explicitly, or it tries port 5432.
+The design-time factory (`AgentStudioDbContextFactory`) uses a placeholder SQLite connection string — only used for model snapshot generation, never a real connection.
+
+**Postgres is still needed, but only for the `databaseQuery` graph node** (the agent tool that queries external databases — a separate concern from app storage, see below) and its test (`DatabaseQueryExecutorTests`). Start it with `docker compose up -d postgres` (see `docker-compose.yml`; port 5433, not 5432, to avoid colliding with another local Postgres) if you're working on that node or running the full test suite.
 
 ## Architecture
 
@@ -78,11 +76,11 @@ Other runner details worth knowing:
 - `DatabaseQueryNode` always binds `Parameters` as real `NpgsqlParameter` values — `Query` itself is never template-expanded, only the named parameters are (SQL injection guard, same rigor as the HTTP tool's SSRF guard below). Every parameter is bound with `NpgsqlDbType.Unknown`, not a typed value — `Parameters` are always plain-text templates, and a typed `Text` parameter fails Postgres's implicit-cast rules against a non-text column (e.g. `WHERE customer_id=@id` against an `integer` column throws `42883: operator does not exist: integer = text`). `Unknown` makes Postgres infer the type from context, same as a literal in a plain-text query. Result shape is always `{"rows":[...],"rowCount":N,"truncated":bool}` — to branch on row count, follow it with a `jsonParse` node (`Path: rowCount`) into a `condition` node, there's no separate "row count" output.
 - Optional `formValues` param on `RunAsync` merges into `conversation.Variables` *after* `variables["input"] = userMessage` — this is how the `/run/{agentId}/{version}` form page feeds named fields into `{variables.name}` templates. Applied last so a form run (which always passes `userMessage=""`) lets a field literally named `input` win and populate `{input}` too, instead of being silently wiped to empty.
 
-### jsonb columns on entities
+### Serialized-JSON columns on entities
 
-Several entity properties follow the same pattern: a `string XyzJson` column plus a `[NotMapped]` computed property that serializes on set / deserializes on get (see `AgentVersion.Graph`/`GraphJson` and `.FormFields`/`FormFieldsJson`). Two things to remember when adding one:
+Several entity properties follow the same pattern: a `string XyzJson` column plus a `[NotMapped]` computed property that serializes on set / deserializes on get (see `AgentVersion.Graph`/`GraphJson` and `.FormFields`/`FormFieldsJson`). Storage is SQLite, so these are plain `TEXT` columns (no `HasColumnType` override needed — the app used to run on Postgres with these mapped to `jsonb`, but that's history now, not a hint to add it back). Two things to remember when adding one:
 - If the property is a mutable collection that gets edited *in place* on a tracked entity (not replaced wholesale), configure a `JsonValueComparer<T>` for it in `AgentStudioDbContext.OnModelCreating` — EF's default reference-equality change tracking otherwise misses the mutation and silently skips the `UPDATE`.
-- The getter should tolerate a non-array/malformed stored value rather than throwing — an EF-generated migration `defaultValue` can get coerced by Postgres into something that doesn't deserialize as expected (e.g. `defaultValue: ""` on a `jsonb` column became a stored `{}`, not `[]`, and crashed every page load for pre-migration rows until the getter was made defensive).
+- The getter should tolerate a non-array/malformed stored value rather than throwing — an EF-generated migration `defaultValue` can end up not matching what the getter expects (the historical case: a Postgres `jsonb` column coerced `defaultValue: ""` into a stored `{}`, not `[]`, and crashed every page load for pre-migration rows until the getter was made defensive). Cheap insurance, keep it even though the specific Postgres quirk that motivated it no longer applies.
 
 `DatabaseConnectionConfig` (phase 3, `databaseQuery` node) is bound from the `DatabaseConnections` config array (`appsettings.json`), not a DB table — `IDatabaseConnectionProvider`/`DatabaseConnectionProvider` is a thin synchronous `IOptions<List<...>>` read, no repository/CRUD. `Provider` defaults to `"postgres"` (the only one implemented); any other value is rejected at query time with a clear error rather than mishandled, since the field exists for a future connector type without a config-shape break.
 
@@ -106,7 +104,7 @@ user was never shown can't reasonably be required.
 
 `AgentVersion` gained `FormResultMode` ("inline"/"redirect"/"webhook"), `FormResultTarget`
 (URL, supports `{result}`/`{conversationId}`/`{executionId}` placeholders) and
-`FormResultMarkdown` (bool). Same "jsonb columns on entities" copy lesson above applies here:
+`FormResultMarkdown` (bool). Same "Serialized-JSON columns on entities" copy lesson above applies here:
 these three needed (and got) the same explicit-copy treatment as `MaxSteps`/`FormFields` in
 `AgentService.PublishAsync`/`RepublishAsync` — a new `AgentVersion` field that isn't copied in
 both of those methods silently reverts to its default on every publish/republish, not just on
@@ -211,6 +209,6 @@ Copy-paste reuse, not live binding: `GraphEditor.razor` lets the user Ctrl/Cmd+c
 ## Testing conventions
 
 - Domain/Application-level tests use EF Core InMemory directly (`new AgentStudioDbContext(new DbContextOptionsBuilder<AgentStudioDbContext>().UseInMemoryDatabase(name).Options)`), one unique DB name per test.
-- `ApiEndpointTests.cs` drives the real Minimal API endpoints through `WebApplicationFactory<Program>`. Its `Factory.ConfigureWebHost` overrides `ConnectionStrings:AgentStudio` to `"InMemory"` via `ConfigureAppConfiguration` *before* `ConfigureServices` runs — this has to happen before `Program.cs`'s `AddAgentStudioInfrastructure` reads the config, otherwise both the Npgsql and InMemory providers get registered and DbContext resolution throws.
+- `ApiEndpointTests.cs` drives the real Minimal API endpoints through `WebApplicationFactory<Program>`. Its `Factory.ConfigureWebHost` overrides `ConnectionStrings:AgentStudio` to `"InMemory"` via `ConfigureAppConfiguration` *before* `ConfigureServices` runs — this has to happen before `Program.cs`'s `AddAgentStudioInfrastructure` reads the config, otherwise both the Sqlite and InMemory providers get registered and DbContext resolution throws.
 - `DatabaseQueryExecutorTests.cs` runs against a real Postgres (the same dev instance on `localhost:5433`) to prove parameterization actually defeats SQL injection — this one can't be faked with InMemory.
 - `WebApplicationFactory`'s TestServer never sets `HttpContext.Connection.RemoteIpAddress` (in-memory transport, no real socket) — tests that need to exercise IP-partitioned behavior (e.g. `AuthRateLimitingTests`) build a `DefaultHttpContext` directly instead of going through HTTP.

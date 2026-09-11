@@ -17,7 +17,7 @@ public static class DependencyInjection
             if (string.IsNullOrWhiteSpace(connectionString) || connectionString == "InMemory")
                 options.UseInMemoryDatabase("agentstudio");
             else
-                options.UseNpgsql(connectionString);
+                options.UseSqlite(connectionString);
         });
 
         services.AddHttpClient("agentstudio-http-tool", client =>

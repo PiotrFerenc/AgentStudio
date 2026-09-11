@@ -7,7 +7,7 @@ Self-hosted studio do tworzenia, testowania i publikowania agentów AI z wizualn
 - .NET 10
 - Blazor Web App (Interactive Server)
 - ASP.NET Core Minimal API
-- Entity Framework Core (PostgreSQL — domyślnie także w dev; InMemory tylko jako fallback bez Dockera)
+- Entity Framework Core (SQLite — storage aplikacji, domyślnie także w dev; InMemory tylko jako fallback bez pliku bazy; Postgres nadal używany, ale tylko przez węzeł grafu `databaseQuery` do zapytań do zewnętrznych baz)
 - Microsoft.Extensions.AI + OpenAI-compatible adapters (Ollama, LM Studio, vLLM)
 - Własny edytor grafu SVG (Blazor)
 
@@ -20,7 +20,7 @@ AgentStudio/
 ├── AgentStudio.Infrastructure — EF Core, repozytoria, SecureHttpExecutor, chat client factory
 ├── AgentStudio.Contracts      — DTO, GraphMapper
 ├── AgentStudio.Web            — Blazor studio + REST API + SSE + widget (jedna aplikacja)
-└── AgentStudio.Tests          — 267 testów (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
+└── AgentStudio.Tests          — 342 testy (walidator, runner, RAG, sub-agenci, konektory DB, auth, REST API end-to-end, formularze — patrz sekcja Testy)
 ```
 
 ## Uruchomienie (dev)
@@ -35,26 +35,27 @@ Jedna aplikacja (studio + REST API + widget) na http://localhost:5251.
 - REST API: http://localhost:5251/api/...
 - Widget: http://localhost:5251/widget/agentstudio.js
 
-**Wymaga Postgresa** (agenci, providerzy, rozmowy, dokumenty — wszystko trwałe, nic w pamięci
-procesu). `appsettings.Development.json` wskazuje domyślnie na
-`Host=localhost;Port=5433;Database=agentstudio;Username=agentstudio;Password=agentstudio`
-(port 5433, nie 5432 — żeby nie kolidować z innym lokalnym Postgresem). Podnieś bazę:
+**Storage aplikacji to SQLite** (agenci, providerzy, rozmowy, dokumenty — wszystko trwałe, nic w
+pamięci procesu), jeden plik obok `AgentStudio.Web` — bez Dockera, bez osobnego serwera bazy.
+`appsettings.Development.json` ustaw na:
 
-```bash
-docker run -d --name agentstudio-postgres \
-  -e POSTGRES_DB=agentstudio -e POSTGRES_USER=agentstudio -e POSTGRES_PASSWORD=agentstudio \
-  -p 5433:5432 -v agentstudio_pgdata:/var/lib/postgresql/data postgres:17
+```json
+"ConnectionStrings": { "AgentStudio": "Data Source=agentstudio.db" }
 ```
 
-(albo `docker-compose.yml` w repo — wymaga nowszego `docker compose`/`docker-compose`, niż jest
-domyślnie na tej maszynie deweloperskiej). Migracje EF Core aplikują się automatycznie przy
-starcie. Restart `dotnet run` **nie** usuwa agentów/providerów/rozmów — dane żyją w kontenerze
-(nazwany wolumen `agentstudio_pgdata`), przeżywają nawet restart samego kontenera.
+Migracje EF Core aplikują się automatycznie przy starcie i tworzą plik, jeśli nie istnieje.
+Restart `dotnet run` **nie** usuwa agentów/providerów/rozmów — dane żyją w pliku `.db` (gitignored,
+`*.db`/`*.db-shm`/`*.db-wal`).
 
 `ConnectionStrings:AgentStudio = "InMemory"` w `appsettings.json` (bazowy plik, bez override'u
-Development) zostaje jako fallback dla CI/szybkich testów bez Dockera — świadomie ulotny,
-dane znikają przy restarcie procesu. Zmień connection string w `appsettings.Production.json`
-dla wdrożenia.
+Development) zostaje jako fallback dla CI/szybkich testów — świadomie ulotny, dane znikają przy
+restarcie procesu. Zmień connection string w `appsettings.Production.json` dla wdrożenia.
+
+**Postgres nadal jest potrzebny, ale tylko dla węzła grafu `databaseQuery`** (narzędzie agenta do
+zapytań do zewnętrznych baz — inna baza niż ta, co trzyma samą aplikację) i jego testu
+(`DatabaseQueryExecutorTests`). Podnieś go przez `docker compose up -d postgres` (patrz
+`docker-compose.yml`, port 5433 zamiast 5432, żeby nie kolidować z innym lokalnym Postgresem) —
+wymagany tylko jeśli pracujesz nad tym węzłem albo odpalasz pełen zestaw testów.
 
 **Testowa baza z przykładowymi danymi** (do budowania/testowania węzła `databaseQuery`) — osobna
 baza `agentstudio_test` na tym samym kontenerze, niezwiązana ze schematem AgentStudio, załadowana
@@ -120,7 +121,7 @@ curl -X POST http://localhost:5251/api/agents/$ID/versions/1/conversations \
   -d '{"message":"hello","conversationId":null}'
 ```
 
-`conversationId` utrzymuje wieloturową rozmowę trwale w Postgresie (faza 2) — bez TTL domyślnie,
+`conversationId` utrzymuje wieloturową rozmowę trwale w storage aplikacji (SQLite, faza 2) — bez TTL domyślnie,
 przeżywa restart aplikacji. Opcjonalny job czyszczący stare rozmowy — `ConversationRetention`
 w DEPLOYMENT.md, wyłączony domyślnie.
 
@@ -191,7 +192,7 @@ Każdy opublikowany agent ma stronę chatu do wysłania linkiem:
 http://localhost:5251/chat/{agentId}/{version}?key=YOUR_API_KEY
 ```
 
-Bez `?key=` strona pokazuje ekran wpisania klucza. Rozmowy są wieloturowe i trwałe (conversationId w Postgresie, bez TTL).
+Bez `?key=` strona pokazuje ekran wpisania klucza. Rozmowy są wieloturowe i trwałe (conversationId w SQLite, bez TTL).
 
 Widget do osadzenia na własnej stronie:
 
@@ -436,7 +437,7 @@ Dokumenty żyją per agent — wyszukiwanie nie przeszukuje dokumentów innych a
 ## Zakres fazy 2 (zrealizowany)
 
 - ✅ Logowanie użytkowników z rolami Admin/Editor (cookie auth, konta w appsettings.json)
-- ✅ Trwała pamięć rozmów (Postgres, bez auto-wygasania — przeżywa restart aplikacji)
+- ✅ Trwała pamięć rozmów (SQLite, bez auto-wygasania — przeżywa restart aplikacji)
 - ✅ Pętle w workflow (cykle dozwolone, `MaxSteps` per agent, licznik przez `{variables.x+1}`)
 - ✅ Równoległość (fan-out/fan-in — węzły `parallel`/`join`, gałęzie równoległe, deterministyczny merge)
 - ✅ RAG i dokumenty (`documentSearch`, brute-force cosine, upload plain text, zakładka Documents)
